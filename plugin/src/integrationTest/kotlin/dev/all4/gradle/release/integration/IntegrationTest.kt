@@ -4,7 +4,6 @@ import java.io.File
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 
-/** Integration test that covers the complete plugin workflow */
 class IntegrationTest {
 
     @TempDir lateinit var testProjectDir: File
@@ -20,7 +19,6 @@ class IntegrationTest {
             """
         )
 
-        // Create subprojects
         listOf("core", "utils", "api", "impl").forEach { subproject ->
             val subprojectDir = File(testProjectDir, subproject)
             subprojectDir.mkdirs()
@@ -89,7 +87,6 @@ class IntegrationTest {
             """
         )
 
-        // Create changelogs
         val changelogsDir = File(testProjectDir, "changelogs")
         val coreChangelogDir = File(changelogsDir, "core")
         val platformChangelogDir = File(changelogsDir, "platform")
@@ -100,7 +97,6 @@ class IntegrationTest {
         TestHelpers.createChangelog(coreChangelogDir)
         TestHelpers.createChangelog(platformChangelogDir)
 
-        // Create external artifacts
         val externalDir = File(testProjectDir, "external")
         externalDir.mkdirs()
 
@@ -112,11 +108,9 @@ class IntegrationTest {
 
         TestHelpers.assertTaskSuccess(result, TestHelpers.PUBLISHING_INFO_TASK)
 
-        // Verify library groups
         TestHelpers.assertOutputContains(result, "core")
         TestHelpers.assertOutputContains(result, "platform")
 
-        // Verify destinations
         TestHelpers.assertDestinationEnabled(result, "Maven Local", true)
         TestHelpers.assertDestinationEnabled(result, "Maven Standalone", true)
         TestHelpers.assertDestinationEnabled(result, "Maven Central", true)

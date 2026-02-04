@@ -58,7 +58,6 @@ public abstract class BumpVersionTask : DefaultTask() {
     tagAfterBump.convention(false)
     rootDir.convention(project.rootDir)
 
-    // Find version file at configuration time
     val gradleProps = project.rootProject.file("gradle.properties")
     if (gradleProps.exists()) {
       versionFile.set(gradleProps)
@@ -95,7 +94,6 @@ public abstract class BumpVersionTask : DefaultTask() {
     val bump = bumpType.get()
     val group = groupName.orNull
 
-    // Get version file from property
     if (!versionFile.isPresent) {
       logger.error("❌ Could not find version file (gradle.properties or build.gradle.kts)")
       return
@@ -140,32 +138,27 @@ public abstract class BumpVersionTask : DefaultTask() {
   private fun readCurrentVersion(file: File, versionKey: String? = null): String? {
     val content = file.readText()
 
-    // If specific version key requested (e.g., "version.logger")
     if (versionKey != null) {
       val keyRegex = Regex("""^${Regex.escape(versionKey)}\s*=\s*(.+)$""", RegexOption.MULTILINE)
       val match = keyRegex.find(content)
       return match?.groupValues?.get(1)?.trim()?.removeSurrounding("\"")
     }
 
-    // gradle.properties: library.version=X.Y.Z (preferred)
     val libVersionMatch = Regex("""^library\.version\s*=\s*(.+)$""", RegexOption.MULTILINE).find(content)
     if (libVersionMatch != null) {
       return libVersionMatch.groupValues[1].trim().removeSurrounding("\"")
     }
 
-    // gradle.properties: version=X.Y.Z
     val propsMatch = Regex("""^version\s*=\s*(.+)$""", RegexOption.MULTILINE).find(content)
     if (propsMatch != null) {
       return propsMatch.groupValues[1].trim().removeSurrounding("\"")
     }
 
-    // build.gradle.kts: version = "X.Y.Z"
     val ktsMatch = Regex("""version\s*=\s*"([^"]+)"""").find(content)
     if (ktsMatch != null) {
       return ktsMatch.groupValues[1]
     }
 
-    // build.gradle: version = 'X.Y.Z' or version 'X.Y.Z'
     val groovyMatch = Regex("""version\s*[=]?\s*['"]([^'"]+)['"]""").find(content)
     if (groovyMatch != null) {
       return groovyMatch.groupValues[1]
@@ -175,12 +168,10 @@ public abstract class BumpVersionTask : DefaultTask() {
   }
 
   private fun calculateNewVersion(current: String, bump: String): String {
-    // If explicit version, use it directly
     if (bump.matches(Regex("""^\d+\.\d+\.\d+.*"""))) {
       return bump
     }
 
-    // Parse version with optional prerelease: X.Y.Z or X.Y.Z-label.N
     val versionRegex = Regex("""^(\d+)\.(\d+)\.(\d+)(?:-([a-zA-Z]+)\.?(\d+)?)?$""")
     val match = versionRegex.find(current)
 
@@ -200,7 +191,6 @@ public abstract class BumpVersionTask : DefaultTask() {
       "minor" -> "$major.${minor + 1}.0"
       "patch" -> "$major.$minor.${patch + 1}"
       "prerelease", "pre" -> {
-        // Bump prerelease number: alpha.1 → alpha.2
         if (prereleaseLabel != null && prereleaseNum != null) {
           "$major.$minor.$patch-$prereleaseLabel.${prereleaseNum + 1}"
         } else if (prereleaseLabel != null) {
@@ -210,14 +200,12 @@ public abstract class BumpVersionTask : DefaultTask() {
         }
       }
       "release" -> {
-        // Remove prerelease suffix: 1.0.0-alpha.3 → 1.0.0
         "$major.$minor.$patch"
       }
       "alpha" -> "$major.$minor.$patch-alpha.1"
       "beta" -> "$major.$minor.$patch-beta.1"
       "rc" -> "$major.$minor.$patch-rc.1"
       else -> {
-        // Default: bump prerelease if exists, otherwise patch
         if (prereleaseLabel != null && prereleaseNum != null) {
           "$major.$minor.$patch-$prereleaseLabel.${prereleaseNum + 1}"
         } else {
@@ -230,7 +218,6 @@ public abstract class BumpVersionTask : DefaultTask() {
   private fun updateVersionInFile(file: File, oldVersion: String, newVersion: String, versionKey: String? = null) {
     var content = file.readText()
 
-    // If specific version key (e.g., "version.logger")
     if (versionKey != null) {
       content = content.replace(
           Regex("""^(${Regex.escape(versionKey)}\s*=\s*).*$""", RegexOption.MULTILINE),
@@ -240,25 +227,21 @@ public abstract class BumpVersionTask : DefaultTask() {
       return
     }
 
-    // gradle.properties: library.version=X.Y.Z
     content = content.replace(
         Regex("""^(library\.version\s*=\s*).*$""", RegexOption.MULTILINE),
         "$1$newVersion"
     )
 
-    // gradle.properties: version=X.Y.Z
     content = content.replace(
         Regex("""^(version\s*=\s*).*$""", RegexOption.MULTILINE),
         "$1$newVersion"
     )
 
-    // build.gradle.kts
     content = content.replace(
         Regex("""(version\s*=\s*")${Regex.escape(oldVersion)}(")"""),
         "$1$newVersion$2"
     )
 
-    // build.gradle
     content = content.replace(
         Regex("""(version\s*[=]?\s*['"])${Regex.escape(oldVersion)}(['"])"""),
         "$1$newVersion$2"

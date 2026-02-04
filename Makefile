@@ -80,10 +80,20 @@ publish-local:
 	./gradlew :plugin:publishToMavenLocal
 
 publish-portal:
-	./gradlew :plugin:publishPlugins
+	@echo "🔐 Loading credentials from 1Password..."
+	@eval "$$(build-logic/scripts/op-api-keys.main.kts \
+		'GRADLE_PUBLISH_KEY=op://Private/Gradle Plugin Portal/publishing/key' \
+		'GRADLE_PUBLISH_SECRET=op://Private/Gradle Plugin Portal/publishing/secret')" && \
+	./gradlew :plugin:publishPlugins -Pgradle.publish.key="$$GRADLE_PUBLISH_KEY" -Pgradle.publish.secret="$$GRADLE_PUBLISH_SECRET"
 
 publish-central:
-	./gradlew :plugin:publishAllPublicationsToMavenCentral
+	@echo "🔐 Loading credentials from 1Password..."
+	@eval "$$(build-logic/scripts/op-api-keys.main.kts \
+		'ORG_GRADLE_PROJECT_mavenCentralUsername=op://Private/Sonatype Maven Central/publishing/username' \
+		'ORG_GRADLE_PROJECT_mavenCentralPassword=op://Private/Sonatype Maven Central/publishing/password' \
+		'ORG_GRADLE_PROJECT_signing_gnupg_passphrase=op://Private/GPG Signing Key/publishing/passphrase')" && \
+	./gradlew :plugin:publishAllPublicationsToMavenCentralRepository --no-configuration-cache
+
 
 # ============================================================================
 # Versioning

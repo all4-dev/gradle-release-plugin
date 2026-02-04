@@ -103,7 +103,6 @@ public abstract class CreateReleaseTask : DefaultTask() {
 
   @TaskAction
   public fun execute() {
-    // If bump type is set, bump version first and use it
     val bump = bumpType.orNull
     if (bump != null && releaseVersion.orNull == null) {
       val newVersion = bumpAndGetVersion(bump)
@@ -135,20 +134,17 @@ public abstract class CreateReleaseTask : DefaultTask() {
     val prefix = tagPrefix.get()
     val tagName = "$prefix$version"
 
-    // Check if tag already exists
     val existingTags = project.runGit("git", "tag", "-l", tagName)
     if (existingTags.isNotBlank()) {
       logger.error("❌ Tag '$tagName' already exists")
       return
     }
 
-    // Check for uncommitted changes
     val status = project.runGit("git", "status", "--porcelain")
     if (status.isNotBlank()) {
       logger.warn("⚠️  Warning: You have uncommitted changes")
     }
 
-    // Create git tag
     logger.lifecycle("📌 Creating tag: $tagName")
     val tagResult = project.runGit("git", "tag", "-a", tagName, "-m", "Release $version")
     if (tagResult.contains("error") || tagResult.contains("fatal")) {
@@ -156,7 +152,6 @@ public abstract class CreateReleaseTask : DefaultTask() {
       return
     }
 
-    // Push tag
     logger.lifecycle("🚀 Pushing tag to remote...")
     val pushResult = project.runGit("git", "push", "origin", tagName)
     if (pushResult.contains("error") || pushResult.contains("fatal")) {
@@ -166,7 +161,6 @@ public abstract class CreateReleaseTask : DefaultTask() {
 
     logger.lifecycle("✅ Tag '$tagName' created and pushed")
 
-    // Create GitHub release
     if (!skipGitHub.get()) {
       createGitHubRelease(tagName, version)
     }
@@ -186,14 +180,12 @@ public abstract class CreateReleaseTask : DefaultTask() {
       return
     }
 
-    // Extract owner/repo from URL
     val repoPath = remoteUrl
         .removePrefix("https://github.com/")
         .removeSuffix(".git")
     
     val apiUrl = "https://api.github.com/repos/$repoPath/releases"
 
-    // Generate release notes if not provided
     val notes = releaseNotes.orNull ?: generateReleaseNotes(tagName)
 
     val body = buildJsonBody(tagName, version, notes)
@@ -226,14 +218,12 @@ public abstract class CreateReleaseTask : DefaultTask() {
   }
 
   private fun generateReleaseNotes(tagName: String): String {
-    // Try to read from CHANGELOG.md first
     val changelogNotes = readChangelogSection(tagName.removePrefix(tagPrefix.get()))
     if (changelogNotes != null) {
       logger.lifecycle("📝 Using release notes from CHANGELOG.md")
       return changelogNotes
     }
 
-    // Fallback: get commits since last tag
     val lastTag = project.runGit("git", "describe", "--tags", "--abbrev=0", "HEAD^")
     val since = if (lastTag.isNotBlank() && !lastTag.contains("fatal")) lastTag else "HEAD~20"
 
@@ -260,7 +250,6 @@ public abstract class CreateReleaseTask : DefaultTask() {
 
     val content = changelogFile.readText()
     
-    // Match section for this version: ## [1.0.0] or ## [Unreleased]
     val versionPattern = if (version.equals("unreleased", ignoreCase = true)) {
       """## \[Unreleased\]"""
     } else {
@@ -310,7 +299,6 @@ public abstract class CreateReleaseTask : DefaultTask() {
     logger.lifecycle("🆙 Bumping version: $currentVersion → $newVersion")
     updateVersionInFile(versionFile, currentVersion, newVersion)
 
-    // Commit version change
     val gitAdd = ProcessBuilder("git", "add", versionFile.absolutePath)
         .directory(project.rootDir).redirectErrorStream(true).start()
     gitAdd.waitFor()

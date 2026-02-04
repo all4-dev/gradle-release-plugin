@@ -35,7 +35,6 @@ public abstract class PublishingExtension @Inject constructor(private val object
         objects.domainObjectContainer(LibraryGroup::class.java)
     public val destinations: PublishDestinations = objects.newInstance(PublishDestinations::class.java)
 
-    /** Shorthand to configure GitHub repository (pom.url, pom.scm, githubPackages) */
     public fun github(repository: String) {
         val url = "https://github.com/$repository"
         pom.url.set(url)

@@ -85,13 +85,10 @@ public abstract class GenerateChangelogTask : DefaultTask() {
       return
     }
 
-    // Detect remote URL
     val remote = remoteUrl.orNull ?: project.detectRemoteUrl()
 
-    // Convert module paths to directory paths
     val dirPaths = paths.map { it.toDirectoryPath() }
 
-    // Get commits
     val commits = getCommits(dirPaths, since.get())
 
     if (commits.isEmpty()) {
@@ -99,7 +96,6 @@ public abstract class GenerateChangelogTask : DefaultTask() {
       return
     }
 
-    // Format output
     val output = buildString {
       appendLine()
       appendLine("═══════════════════════════════════════════════════════════════════════════")
@@ -164,7 +160,6 @@ public abstract class GenerateChangelogTask : DefaultTask() {
     val commits = mutableListOf<CommitInfo>()
 
     try {
-      // Get commit hashes
       val logArgs = mutableListOf("git", "log", "--format=%H|%h|%ct|%s", "$since..HEAD")
       if (paths.isNotEmpty()) {
         logArgs.add("--")
@@ -182,7 +177,6 @@ public abstract class GenerateChangelogTask : DefaultTask() {
           val timestamp = parts[2].toLongOrNull() ?: 0
           val message = parts[3]
 
-          // Get files changed count
           val filesOutput = project.runGit("git", "diff-tree", "--no-commit-id", "--name-only", "-r", hash)
           val filesChanged = filesOutput.lines().filter { it.isNotBlank() }.size
 

@@ -126,6 +126,37 @@ class ReleasePluginUnitTest {
   }
 
   @Test
+  fun `library group normalizes project paths and type-safe accessor strings`() {
+    val project = ProjectBuilder.builder().withProjectDir(tempDir).build()
+
+    project.plugins.apply(ReleasePlugin::class.java)
+    val ext = project.extensions.findByType<PublishingExtension>()!!
+
+    ext.libraryGroups.create("core") {
+      modules.set(
+          setOf(
+              ":core",
+              "projects.libs.core.api",
+              "projects.libs.core.impl.path",
+              "projects.libs.core.util.dependencyProject.path",
+              "project ':utils'",
+          ))
+    }
+
+    val libGroup = ext.libraryGroups.getByName("core")
+    assertThat(libGroup.moduleProjectPaths())
+        .containsExactlyInAnyOrder(
+            ":core",
+            ":libs:core:api",
+            ":libs:core:impl",
+            ":libs:core:util",
+            ":utils",
+        )
+    assertThat(libGroup.containsModule("projects.libs.core.api")).isTrue()
+    assertThat(libGroup.containsModule(":libs:core:api")).isTrue()
+  }
+
+  @Test
   fun `extension can configure all destinations`() {
     val project = ProjectBuilder.builder().withProjectDir(tempDir).build()
 

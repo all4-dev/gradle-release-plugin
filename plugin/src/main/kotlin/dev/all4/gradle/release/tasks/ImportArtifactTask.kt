@@ -94,7 +94,6 @@ public abstract class ImportArtifactTask : DefaultTask() {
   public fun execute() {
     val f = file.orNull?.asFile
 
-    // Validate inputs
     if (f == null) {
       logger.error(
           """
@@ -121,7 +120,6 @@ public abstract class ImportArtifactTask : DefaultTask() {
       return
     }
 
-    // Try explicit params first, then autodetect from filename
     val detected = autodetect(f)
     val grp = artifactGroup.orNull ?: detected?.group
     val name = artifactName.orNull ?: detected?.name
@@ -165,7 +163,6 @@ public abstract class ImportArtifactTask : DefaultTask() {
     val targetFile = File(targetDir, "$name-$ver.$ext")
     f.copyTo(targetFile, overwrite = true)
 
-    // Create minimal POM
     val pomFile = File(targetDir, "$name-$ver.pom")
     pomFile.writeText(
         """
@@ -183,7 +180,6 @@ public abstract class ImportArtifactTask : DefaultTask() {
     val alias = (prefix.orNull?.let { "$it-" } ?: "") + name
     val relativePath = targetFile.relativeTo(output).path
 
-    // Update index.md
     updateIndex(
         output = output,
         fullGroup = fullGroup,
@@ -193,7 +189,6 @@ public abstract class ImportArtifactTask : DefaultTask() {
         relativePath = relativePath,
     )
 
-    // Check if repository is configured
     val repoConfigured = isRepositoryConfigured(output)
 
     logger.lifecycle(
@@ -283,16 +278,12 @@ public abstract class ImportArtifactTask : DefaultTask() {
       val content = indexFile.readText()
       val lines = content.lines().toMutableList()
 
-      // Check if coordinate already exists
       val existingIndex = lines.indexOfFirst { it.contains("### `$coordinate`") }
 
       if (existingIndex >= 0) {
-        // Remove old entry (header + 3 list items)
         repeat(4) { lines.removeAt(existingIndex) }
-        // Insert updated entry
         newEntry.lines().reversed().forEach { lines.add(existingIndex, it) }
       } else {
-        // Append new entry
         lines.add("")
         lines.addAll(newEntry.lines())
       }
@@ -305,13 +296,11 @@ public abstract class ImportArtifactTask : DefaultTask() {
   private fun autodetect(file: File): DetectedCoords? {
     val baseName = file.nameWithoutExtension
 
-    // Pattern 1: group__name__version (e.g., my.domain__my-lib__1.0.0)
     val fullPattern = Regex("""^(.+)__(.+)__(.+)$""")
     fullPattern.matchEntire(baseName)?.let { m ->
       return DetectedCoords(m.groupValues[1], m.groupValues[2], m.groupValues[3])
     }
 
-    // Pattern 2: name-version (e.g., my-lib-1.0.0)
     val simplePattern = Regex("""^(.+)-(\d+\..+)$""")
     simplePattern.matchEntire(baseName)?.let { m ->
       return DetectedCoords(null, m.groupValues[1], m.groupValues[2])

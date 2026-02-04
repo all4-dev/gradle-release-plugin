@@ -1,0 +1,3 @@
+# Don't commit example environment files with real credentials
+*.example.env
+test-credentials.txt
