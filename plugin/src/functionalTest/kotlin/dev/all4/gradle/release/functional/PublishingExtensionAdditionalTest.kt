@@ -169,7 +169,6 @@ class PublishingExtensionAdditionalTest {
                 .build()
 
         assert(result.task(":publishingInfo")?.outcome == TaskOutcome.SUCCESS)
-        // The github shorthand should configure pom.url and scm
         assert(result.output.contains("📦 Publishing Configuration"))
     }
 
@@ -283,7 +282,6 @@ class PublishingExtensionAdditionalTest {
             }
 
             releaseConfig {
-                // Minimal configuration
             }
             """
                 .trimIndent()

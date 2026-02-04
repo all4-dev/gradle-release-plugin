@@ -20,7 +20,6 @@ class PublishPluginAdditionalTest {
         buildFile = File(testProjectDir, "build.gradle.kts")
         settingsFile = File(testProjectDir, "settings.gradle.kts")
 
-        // Create subproject
         val subprojectDir = File(testProjectDir, "core")
         subprojectDir.mkdirs()
         subprojectBuildFile = File(subprojectDir, "build.gradle.kts")
@@ -197,7 +196,6 @@ class PublishPluginAdditionalTest {
 
     @Test
     fun `plugin auto-detects root vs subproject`() {
-        // Test root project behavior
         buildFile.writeText(
             """
             plugins {
@@ -218,7 +216,6 @@ class PublishPluginAdditionalTest {
         assert(rootResult.task(":publishingInfo")?.outcome == TaskOutcome.SUCCESS)
         assert(rootResult.output.contains("📦 Publishing Configuration"))
 
-        // Test subproject behavior
         subprojectBuildFile.writeText(
             """
             plugins {

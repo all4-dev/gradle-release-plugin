@@ -15,7 +15,7 @@ A Gradle plugin for streamlined library publishing with built-in support for Mav
 
 **Metadata**
 
-| Key | Value |
-|-----|-------|
-| DOC_ROOT_PATH | `/Users/liviolopez/Code/gradle-release-plugin/docs` |
-| PROJECT_SUBDIR_PATH | `docs/` |
+| Key                 | Value                 |
+|---------------------|-----------------------|
+| DOC_ROOT_PATH       | `${PROJECT_DIR}/docs` |
+| PROJECT_SUBDIR_PATH | `docs/`               |

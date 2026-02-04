@@ -57,8 +57,40 @@ releaseConfig {
 | **Changelog generation** | Generate from git commits |
 | **Multi-destination** | Maven Local, Central, GitHub Packages/Pages, Plugin Portal |
 | **Library groups** | Publish multiple modules together |
+| **Changelog modes** | Centralized or per-project changelogs |
 | **Dry-run mode** | Preview before publishing |
 | **External artifacts** | Import legacy JARs/AARs |
+| **🔐 1Password integration** | Automatic secret resolution with 1Password CLI |
+
+## Changelog Configuration
+
+Configure how changelogs are managed per library group:
+
+```kotlin
+releaseConfig {
+  libraryGroups {
+    register("core") {
+      modules.add(":core")
+      
+      // Option 1: Centralized changelog (default)
+      changelogMode.set(ChangelogMode.CENTRALIZED)
+      changelogPath.set("changelogs/core/CHANGELOG.md")
+      
+      // Option 2: Per-project changelog (each module has its own)
+      changelogMode.set(ChangelogMode.PER_PROJECT)
+      // Creates CHANGELOG.md in each module's directory
+      
+      // Disable changelog generation entirely
+      changelogEnabled.set(false)
+    }
+  }
+}
+```
+
+| Mode | Description |
+|------|-------------|
+| `CENTRALIZED` | Single changelog at configured path (default) |
+| `PER_PROJECT` | Each module maintains its own `CHANGELOG.md` |
 
 ## Publishing to Maven Central
 
@@ -82,10 +114,11 @@ signing.gnupg.passphrase=your-passphrase
 
 ## Documentation
 
-- [Configuration](docs/configuration.md)
-- [Examples](docs/examples.md)
-- [External Artifacts](docs/external-artifacts.md)
-- [Tasks](docs/tasks.md)
+- [Configuration](docs/content/configuration.md)
+- [Tasks](docs/content/tasks.md)
+- [Examples](docs/content/examples.md)
+- [External Artifacts](docs/content/custom-repositories.md)
+- [🔐 1Password Integration](docs/1password/) - Secure credential management
 
 ## License
 

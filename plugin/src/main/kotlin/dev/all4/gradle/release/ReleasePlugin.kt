@@ -6,6 +6,8 @@ import org.gradle.api.credentials.HttpHeaderCredentials
 import org.gradle.api.publish.PublishingExtension as GradlePublishingExtension
 import org.gradle.api.publish.maven.MavenPublication
 import org.gradle.authentication.http.HttpHeaderAuthentication
+import dev.all4.gradle.release.model.ChangelogMode
+import dev.all4.gradle.release.util.OnePasswordSupport
 import dev.all4.gradle.release.util.capitalized
 import dev.all4.gradle.release.util.detectRemoteUrl
 import dev.all4.gradle.release.util.toTaskName
@@ -51,27 +53,15 @@ public class ReleasePlugin : Plugin<Project> {
         }
     }
 
-    // ========== ROOT PROJECT CONFIGURATION ==========
 
     private fun applyToRoot(project: Project) {
         with(project) {
-            val ext =
-                extensions.create<PublishingExtension>(
-                    "releaseConfig",
-                    PublishingExtension::class.java,
-                )
+            val ext = extensions.create("releaseConfig", PublishingExtension::class.java)
             configureDefaults(ext)
 
-            // Register importArtifact task
             tasks.register("importArtifact", dev.all4.gradle.release.tasks.ImportArtifactTask::class.java)
-
-            // Register generateChangelog task (generic)
             tasks.register("generateChangelog", dev.all4.gradle.release.tasks.GenerateChangelogTask::class.java)
-
-            // Register createRelease task
             tasks.register("createRelease", dev.all4.gradle.release.tasks.CreateReleaseTask::class.java)
-
-            // Register bumpVersion task
             tasks.register("bumpVersion", dev.all4.gradle.release.tasks.BumpVersionTask::class.java)
 
             afterEvaluate {
@@ -92,11 +82,28 @@ public class ReleasePlugin : Plugin<Project> {
 
     private fun Project.ensureChangelogs(ext: PublishingExtension) {
         for (libGroup in ext.libraryGroups) {
-            val changelogFile = rootProject.file(libGroup.changelogPath.get())
-            if (!changelogFile.exists()) {
-                changelogFile.parentFile?.mkdirs()
-                changelogFile.writeText(createPlaceholderChangelog(libGroup.getName()))
-                logger.lifecycle("📝 Created changelog: ${libGroup.changelogPath.get()}")
+            if (!libGroup.changelogEnabled.get()) continue
+
+            when (libGroup.changelogMode.get()) {
+                ChangelogMode.CENTRALIZED -> {
+                    val changelogFile = rootProject.file(libGroup.changelogPath.get())
+                    if (!changelogFile.exists()) {
+                        changelogFile.parentFile?.mkdirs()
+                        changelogFile.writeText(createPlaceholderChangelog(libGroup.getName()))
+                        logger.lifecycle("📝 Created changelog: ${libGroup.changelogPath.get()}")
+                    }
+                }
+                ChangelogMode.PER_PROJECT -> {
+                    for (modulePath in libGroup.modules.get()) {
+                        val moduleProject = findProject(modulePath) ?: continue
+                        val changelogFile = moduleProject.file("CHANGELOG.md")
+                        if (!changelogFile.exists()) {
+                            changelogFile.parentFile?.mkdirs()
+                            changelogFile.writeText(createPlaceholderChangelog(moduleProject.name))
+                            logger.lifecycle("📝 Created changelog: ${moduleProject.projectDir}/CHANGELOG.md")
+                        }
+                    }
+                }
             }
         }
     }
@@ -132,7 +139,6 @@ public class ReleasePlugin : Plugin<Project> {
             val groupName = libGroup.getName()
             val capitalizedName = groupName.capitalized()
 
-            // Aggregate task for standalone
             if (ext.destinations.mavenStandalone.enabled.get()) {
                 tasks.register("publish${capitalizedName}ToStandalone") {
                     group = "publishing"
@@ -165,7 +171,6 @@ public class ReleasePlugin : Plugin<Project> {
                 }
             }
 
-            // Aggregate task for Maven Local
             if (ext.destinations.mavenLocal.enabled.get()) {
                 tasks.register("publish${capitalizedName}ToMavenLocal") {
                     group = "publishing"
@@ -181,7 +186,6 @@ public class ReleasePlugin : Plugin<Project> {
                 }
             }
 
-            // Aggregate task for GitHub Pages
             if (ext.destinations.githubPages.enabled.get()) {
                 tasks.register("publish${capitalizedName}ToGitHubPages") {
                     group = "publishing"
@@ -199,7 +203,6 @@ public class ReleasePlugin : Plugin<Project> {
                 }
             }
 
-            // Aggregate task for GitHub Packages
             if (ext.destinations.githubPackages.enabled.get()) {
                 tasks.register("publish${capitalizedName}ToGitHubPackages") {
                     group = "publishing"
@@ -217,7 +220,6 @@ public class ReleasePlugin : Plugin<Project> {
                 }
             }
 
-            // Aggregate task for Maven Central
             if (ext.destinations.mavenCentral.enabled.get()) {
                 tasks.register("publish${capitalizedName}ToMavenCentral") {
                     group = "publishing"
@@ -236,7 +238,6 @@ public class ReleasePlugin : Plugin<Project> {
             }
         }
 
-        // Publish all groups to standalone
         if (ext.destinations.mavenStandalone.enabled.get()) {
             tasks.register("publishAllToStandalone") {
                 group = "publishing"
@@ -248,7 +249,6 @@ public class ReleasePlugin : Plugin<Project> {
             }
         }
 
-        // Info task
         tasks.register("publishingInfo") {
             group = "help"
             description = "Shows publishing configuration"
@@ -259,7 +259,6 @@ public class ReleasePlugin : Plugin<Project> {
     private fun Project.registerChangelogTasks(ext: PublishingExtension) {
         val remoteUrlProvider = detectRemoteUrl()
 
-        // Register per-group changelog tasks
         for (libGroup in ext.libraryGroups) {
             val groupName = libGroup.getName()
             val capitalizedName = groupName.capitalized()
@@ -290,7 +289,11 @@ public class ReleasePlugin : Plugin<Project> {
             for (libGroup in ext.libraryGroups) {
                 appendLine("  • ${libGroup.getName()}")
                 appendLine("    Modules: ${libGroup.modules.get().joinToString(", ")}")
-                appendLine("    Changelog: ${libGroup.changelogPath.get()}")
+                val changelogInfo = when (libGroup.changelogMode.get()) {
+                    ChangelogMode.CENTRALIZED -> libGroup.changelogPath.get()
+                    ChangelogMode.PER_PROJECT -> "per-project (each module's CHANGELOG.md)"
+                }
+                appendLine("    Changelog: $changelogInfo")
             }
         }
 
@@ -330,16 +333,13 @@ public class ReleasePlugin : Plugin<Project> {
         appendLine()
     }
 
-    // ========== SUBPROJECT/MODULE CONFIGURATION ==========
 
     private fun applyToModule(project: Project) {
         with(project) {
             pluginManager.apply("maven-publish")
 
-            // Get publishing extension from root project (or create if not exists)
             val publishingExt = rootProject.extensions.findByType<PublishingExtension>()
 
-            // Read version and group from extension or properties
             val propertyVersion =
                 publishingExt?.version?.orNull ?: findProperty("library.version") as? String
             val propertyGroup =
@@ -348,14 +348,12 @@ public class ReleasePlugin : Plugin<Project> {
             if (propertyVersion != null) version = propertyVersion
             if (propertyGroup != null) group = propertyGroup
 
-            // Auto-configure Android library publishing with sources
             configureAndroidPublishing()
 
             afterEvaluate {
                 configureRepositories(publishingExt)
                 configurePom(publishingExt)
 
-                // Add publishingInfo task to subproject if root has publishing extension
                 if (publishingExt != null) {
                     tasks.register("publishingInfo") {
                         group = "help"
@@ -369,11 +367,9 @@ public class ReleasePlugin : Plugin<Project> {
 
     private fun Project.configureAndroidPublishing() {
         pluginManager.withPlugin("com.android.library") {
-            // Use Groovy/dynamic invocation to avoid compile-time dependency on AGP
             try {
                 val androidExt = extensions.findByName("android") ?: return@withPlugin
 
-                // Call: android.publishing { singleVariant("release") { withSourcesJar() } }
                 val groovyObj = androidExt as groovy.lang.GroovyObject
                 groovyObj.invokeMethod("publishing", arrayOf(
                     closureOf<Any> {
@@ -402,12 +398,10 @@ public class ReleasePlugin : Plugin<Project> {
     private fun Project.configureRepositories(publishingExt: PublishingExtension?) {
         extensions.configure<GradlePublishingExtension> {
             repositories {
-                // Maven Local
                 if (publishingExt?.destinations?.mavenLocal?.enabled?.orNull == true) {
                     mavenLocal()
                 }
 
-                // Maven Standalone
                 val standaloneConfig = publishingExt?.destinations?.mavenStandalone
                 if (standaloneConfig?.enabled?.orNull == true && standaloneConfig.path.isPresent) {
                     maven {
@@ -416,16 +410,17 @@ public class ReleasePlugin : Plugin<Project> {
                     }
                 }
 
-                // GitHub Packages
                 val ghPackagesConfig = publishingExt?.destinations?.githubPackages
                 if (
                     ghPackagesConfig?.enabled?.orNull == true &&
                         ghPackagesConfig.repository.isPresent
                 ) {
                     val githubActor =
-                        findProperty("GITHUB_ACTOR") as? String ?: System.getenv("GITHUB_ACTOR")
+                        (findProperty("GITHUB_ACTOR") as? String ?: System.getenv("GITHUB_ACTOR"))
+                            ?.let { OnePasswordSupport.resolve(it, this@configureRepositories) }
                     val githubToken =
-                        findProperty("GITHUB_TOKEN") as? String ?: System.getenv("GITHUB_TOKEN")
+                        (findProperty("GITHUB_TOKEN") as? String ?: System.getenv("GITHUB_TOKEN"))
+                            ?.let { OnePasswordSupport.resolve(it, this@configureRepositories) }
 
                     if (githubActor != null && githubToken != null) {
                         maven {
@@ -444,7 +439,6 @@ public class ReleasePlugin : Plugin<Project> {
                     }
                 }
 
-                // GitHub Pages
                 val ghPagesConfig = publishingExt?.destinations?.githubPages
                 if (ghPagesConfig?.enabled?.orNull == true && ghPagesConfig.repoPath.isPresent) {
                     maven {
@@ -453,15 +447,16 @@ public class ReleasePlugin : Plugin<Project> {
                     }
                 }
 
-                // Maven Central
                 val mavenCentralConfig = publishingExt?.destinations?.mavenCentral
                 if (mavenCentralConfig?.enabled?.orNull == true) {
                     val sonatypeUser =
-                        findProperty("sonatype.username") as? String
-                            ?: System.getenv("SONATYPE_USERNAME")
+                        (findProperty("sonatype.username") as? String
+                            ?: System.getenv("SONATYPE_USERNAME"))
+                            ?.let { OnePasswordSupport.resolve(it, this@configureRepositories) }
                     val sonatypePassword =
-                        findProperty("sonatype.password") as? String
-                            ?: System.getenv("SONATYPE_PASSWORD")
+                        (findProperty("sonatype.password") as? String
+                            ?: System.getenv("SONATYPE_PASSWORD"))
+                            ?.let { OnePasswordSupport.resolve(it, this@configureRepositories) }
 
                     if (sonatypeUser != null && sonatypePassword != null) {
                         maven {
@@ -483,7 +478,6 @@ public class ReleasePlugin : Plugin<Project> {
                     }
                 }
 
-                // Custom Maven repositories
                 publishingExt?.destinations?.customRepos?.forEach { customRepo ->
                     if (customRepo.enabled.orNull == true && customRepo.url.isPresent) {
                         maven {
@@ -494,22 +488,23 @@ public class ReleasePlugin : Plugin<Project> {
                                 isAllowInsecureProtocol = true
                             }
 
-                            // Basic auth (username/password)
                             if (customRepo.username.isPresent && customRepo.password.isPresent) {
+                                val resolvedUsername = OnePasswordSupport.resolve(customRepo.username.get(), this@configureRepositories)
+                                val resolvedPassword = OnePasswordSupport.resolve(customRepo.password.get(), this@configureRepositories)
                                 credentials {
-                                    username = customRepo.username.get()
-                                    password = customRepo.password.get()
+                                    username = resolvedUsername
+                                    password = resolvedPassword
                                 }
                             }
 
-                            // Header-based auth (token)
                             if (
                                 customRepo.authHeaderName.isPresent &&
                                     customRepo.authHeaderValue.isPresent
                             ) {
+                                val resolvedHeaderValue = OnePasswordSupport.resolve(customRepo.authHeaderValue.get(), this@configureRepositories)
                                 credentials(HttpHeaderCredentials::class) {
                                     name = customRepo.authHeaderName.get()
-                                    value = customRepo.authHeaderValue.get()
+                                    value = resolvedHeaderValue
                                 }
                                 authentication { create<HttpHeaderAuthentication>("header") }
                             }
@@ -528,7 +523,6 @@ public class ReleasePlugin : Plugin<Project> {
                 ?: findProperty("library.version") as? String
                 ?: version.toString()
 
-        // Auto-detect artifactId from libraryGroups or use property
         val libraryArtifactId = findProperty("library.artifactId") as? String
             ?: detectArtifactIdFromGroups(publishingExt)
 
@@ -536,7 +530,6 @@ public class ReleasePlugin : Plugin<Project> {
             publications.withType<MavenPublication>().configureEach {
                 if (libraryGroup != null) groupId = libraryGroup
                 if (libraryArtifactId != null) {
-                    // Replace base artifact ID, preserving platform suffix (e.g., -jvm, -js)
                     val suffix = if (artifactId.contains("-")) "-${artifactId.substringAfter("-")}" else ""
                     artifactId = "$libraryArtifactId$suffix"
                 }
@@ -548,7 +541,6 @@ public class ReleasePlugin : Plugin<Project> {
                     pomConfig?.url?.orNull?.let { url.set(it) }
                     pomConfig?.inceptionYear?.orNull?.let { inceptionYear.set(it) }
 
-                    // License
                     val licenseConfig = pomConfig?.license
                     if (licenseConfig?.name?.isPresent == true) {
                         licenses {
@@ -560,7 +552,6 @@ public class ReleasePlugin : Plugin<Project> {
                         }
                     }
 
-                    // Developers
                     val developersList = pomConfig?.developers?.orNull
                     if (!developersList.isNullOrEmpty()) {
                         developers {
@@ -576,7 +567,6 @@ public class ReleasePlugin : Plugin<Project> {
                         }
                     }
 
-                    // SCM
                     val scmConfig = pomConfig?.scm
                     if (scmConfig?.url?.isPresent == true) {
                         scm {
@@ -608,12 +598,9 @@ public class ReleasePlugin : Plugin<Project> {
             val modules = libGroup.modules.orNull ?: continue
 
             if (modulePath in modules) {
-                // Module belongs to this group
                 return if (moduleName == groupName) {
-                    // Module name matches group name, no prefix needed
                     null
                 } else {
-                    // Prefix with group name: charts → theme-charts (AndroidX standard)
                     "$groupName-$moduleName"
                 }
             }

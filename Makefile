@@ -1,7 +1,7 @@
 # Gradle Publish Plugin - Development Commands
 # Usage: make <target>
 
-.PHONY: help build check test coverage format docs clean publish-local publish-portal publish-central bump-pre
+.PHONY: help build check test coverage format docs clean publish-local publish-portal publish-central bump-pre bumpversion-and-remote-pblish-andtag
 
 # Default target
 help:
@@ -29,6 +29,7 @@ help:
 	@echo ""
 	@echo "  Versioning:"
 	@echo "    bump-pre        - Bump to prerelease (e.g., 0.1.0 → 0.1.0-alpha.1)"
+	@echo "    bumpversion-and-remote-pblish-andtag - Bump version, tag, push, publish Portal + Central (VERSION=x.y.z)"
 
 # ============================================================================
 # Build
@@ -72,18 +73,53 @@ docs:
 	@echo ""
 	@echo "Dokka: file://$$(pwd)/plugin/build/dokka/html/index.html"
 
+
 # ============================================================================
 # Publish
-# ============================================================================
 
-publish-local:
-	./gradlew :plugin:publishToMavenLocal
+tag-and-publish-pre-release:
+	@current=$$(grep 'version = ' plugin/build.gradle.kts | sed 's/.*"\(.*\)"/\1/'); \
+	if echo "$$current" | grep -q '\-alpha\.'; then \
+		num=$$(echo "$$current" | sed 's/.*-alpha\.\([0-9]*\)/\1/'); \
+		base=$$(echo "$$current" | sed 's/-alpha\.[0-9]*//'); \
+		new="$$base-alpha.$$((num + 1))"; \
+	else \
+		new="$$current-alpha.1"; \
+	fi; \
+	sed -i '' "s/version = \"$$current\"/version = \"$$new\"/" plugin/build.gradle.kts; \
+	echo "🆙 Bumping version: $$current → $$new"; \
+	git add plugin/build.gradle.kts && git commit -m "chore: bump version to $$new"; \
+	git tag -a "v$$new" -m "Release $$new"; \
+	git push origin HEAD; \
+	git push origin "v$$new"; \
+	$(MAKE) publish-portal; \
+	$(MAKE) publish-central
 
-publish-portal:
-	./gradlew :plugin:publishPlugins
-
-publish-central:
-	./gradlew :plugin:publishAllPublicationsToMavenCentral
+tag-and-publish-release:
+	@if [ -z "$(VERSION)" ]; then \
+		echo "Usage: make $@ VERSION=x.y.z"; \
+		exit 1; \
+	fi
+	@set -e; \
+	current=$$(grep 'version = ' plugin/build.gradle.kts | sed 's/.*"\(.*\)"/\1/'); \
+	new="$(VERSION)"; \
+	if [ "$$current" = "$$new" ]; then \
+		echo "Version already $$new"; \
+		exit 1; \
+	fi; \
+	if [ -n "$$(git status --porcelain)" ]; then \
+		echo "Working tree is dirty. Commit or stash changes before releasing."; \
+		exit 1; \
+	fi; \
+	sed -i '' "s/version = \"$$current\"/version = \"$$new\"/" plugin/build.gradle.kts; \
+	echo "🆙 Bumping version: $$current → $$new"; \
+	git add plugin/build.gradle.kts; \
+	git commit -m "chore: bump version to $$new"; \
+	git tag -a "v$$new" -m "Release $$new"; \
+	git push origin HEAD; \
+	git push origin "v$$new"; \
+	$(MAKE) publish-portal; \
+	$(MAKE) publish-central
 
 # ============================================================================
 # Versioning
@@ -101,3 +137,23 @@ bump-pre:
 	sed -i '' "s/version = \"$$current\"/version = \"$$new\"/" plugin/build.gradle.kts; \
 	echo "🆙 Bumping version: $$current → $$new"; \
 	git add plugin/build.gradle.kts && git commit -m "chore: bump version to $$new"
+
+# ============================================================================
+
+publish-local:
+	./gradlew :plugin:publishToMavenLocal
+
+publish-portal:
+	@echo "🔐 Loading credentials from 1Password..."
+	@eval "$$(build-logic/scripts/op-api-keys.main.kts \
+		'GRADLE_PUBLISH_KEY=op://Private/Gradle Plugin Portal/publishing/key' \
+		'GRADLE_PUBLISH_SECRET=op://Private/Gradle Plugin Portal/publishing/secret')" && \
+	./gradlew :plugin:publishPlugins -Pgradle.publish.key="$$GRADLE_PUBLISH_KEY" -Pgradle.publish.secret="$$GRADLE_PUBLISH_SECRET"
+
+publish-central:
+	@echo "🔐 Loading credentials from 1Password..."
+	@eval "$$(build-logic/scripts/op-api-keys.main.kts \
+		'ORG_GRADLE_PROJECT_mavenCentralUsername=op://Private/Sonatype Maven Central/publishing/username' \
+		'ORG_GRADLE_PROJECT_mavenCentralPassword=op://Private/Sonatype Maven Central/publishing/password' \
+		'ORG_GRADLE_PROJECT_signing_gnupg_passphrase=op://Private/GPG Signing Key/publishing/passphrase')" && \
+	./gradlew :plugin:publishAllPublicationsToMavenCentralRepository --no-configuration-cache

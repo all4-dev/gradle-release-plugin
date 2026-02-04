@@ -12,7 +12,7 @@ plugins {
 
 group = "dev.all4.gradle"
 
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha.4"
 
 // Kover configurations from convention plugin
 val koverCli: Configuration by configurations
@@ -34,6 +34,18 @@ val originUrl =
         .standardOutput
         .asText
         .map { it.trim() }
+        .map { url ->
+            // Convert SSH format to HTTPS
+            when {
+                url.startsWith("git@github.com:") ->
+                    url.replace("git@github.com:", "https://github.com/")
+                        .removeSuffix(".git")
+                url.startsWith("git@") ->
+                    url.replace(Regex("git@([^:]+):"), "https://$1/")
+                        .removeSuffix(".git")
+                else -> url.removeSuffix(".git")
+            }
+        }
 
 gradlePlugin {
     website.set(originUrl)
@@ -42,7 +54,7 @@ gradlePlugin {
     plugins {
         create("release") {
             id = "dev.all4.release"
-            displayName = "All4 Release Plugin"
+            displayName = "All4dev Gradle Release Plugin"
             description =
                 "A complete release toolkit: version bumping, changelog generation, git tagging, GitHub releases, and multi-destination publishing (Maven Central, GitHub Packages, etc.)."
             tags.set(
@@ -99,7 +111,7 @@ signing {
 
 mavenPublishing {
     publishToMavenCentral(com.vanniktech.maven.publish.SonatypeHost.CENTRAL_PORTAL)
-    
+
     pom {
         name.set("Gradle Release Plugin")
         description.set(
