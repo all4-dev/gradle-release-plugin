@@ -73,6 +73,13 @@ gradlePlugin {
 }
 
 publishing {
+    repositories {
+        maven {
+            name = "maven-standalone"
+            url = uri("${System.getProperty("user.home")}/Code/devkit/gradle/maven-standalone")
+        }
+    }
+
     publications.withType<MavenPublication> {
         pom {
             name.set("Gradle Release Plugin")
