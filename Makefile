@@ -1,7 +1,9 @@
 # Gradle Publish Plugin - Development Commands
 # Usage: make <target>
 
-.PHONY: help build check test coverage format docs clean publish-local publish-portal publish-central bump-pre bumpversion-and-remote-pblish-andtag
+.PHONY: help build check test functional integration coverage format docs clean publish-local publish-portal publish-central bump-pre tag-and-publish-pre-release tag-and-publish-release release-doctor
+
+RELEASE_WORKFLOW=node --experimental-strip-types build-logic/scripts/release-workflow.main.ts
 
 # Default target
 help:
@@ -26,10 +28,12 @@ help:
 	@echo "    publish-local   - Publish to ~/.m2/repository (mavenLocal)"
 	@echo "    publish-portal  - Publish to Gradle Plugin Portal"
 	@echo "    publish-central - Publish to Maven Central (Sonatype)"
+	@echo "    release-doctor  - Validate release scripts + 1Password access"
 	@echo ""
 	@echo "  Versioning:"
 	@echo "    bump-pre        - Bump to prerelease (e.g., 0.1.0 → 0.1.0-alpha.1)"
-	@echo "    bumpversion-and-remote-pblish-andtag - Bump version, tag, push, publish Portal + Central (VERSION=x.y.z)"
+	@echo "    tag-and-publish-pre-release - Bump alpha, tag, publish, push"
+	@echo "    tag-and-publish-release     - Release stable version (VERSION=x.y.z)"
 
 # ============================================================================
 # Build
@@ -78,65 +82,21 @@ docs:
 # Publish
 
 tag-and-publish-pre-release:
-	@current=$$(grep 'version = ' plugin/build.gradle.kts | sed 's/.*"\(.*\)"/\1/'); \
-	if echo "$$current" | grep -q '\-alpha\.'; then \
-		num=$$(echo "$$current" | sed 's/.*-alpha\.\([0-9]*\)/\1/'); \
-		base=$$(echo "$$current" | sed 's/-alpha\.[0-9]*//'); \
-		new="$$base-alpha.$$((num + 1))"; \
-	else \
-		new="$$current-alpha.1"; \
-	fi; \
-	sed -i '' "s/version = \"$$current\"/version = \"$$new\"/" plugin/build.gradle.kts; \
-	echo "🆙 Bumping version: $$current → $$new"; \
-	git add plugin/build.gradle.kts && git commit -m "chore: bump version to $$new"; \
-	git tag -a "v$$new" -m "Release $$new"; \
-	git push origin HEAD; \
-	git push origin "v$$new"; \
-	$(MAKE) publish-portal; \
-	$(MAKE) publish-central
+	$(RELEASE_WORKFLOW) tag-and-publish-pre-release
 
 tag-and-publish-release:
 	@if [ -z "$(VERSION)" ]; then \
 		echo "Usage: make $@ VERSION=x.y.z"; \
 		exit 1; \
 	fi
-	@set -e; \
-	current=$$(grep 'version = ' plugin/build.gradle.kts | sed 's/.*"\(.*\)"/\1/'); \
-	new="$(VERSION)"; \
-	if [ "$$current" = "$$new" ]; then \
-		echo "Version already $$new"; \
-		exit 1; \
-	fi; \
-	if [ -n "$$(git status --porcelain)" ]; then \
-		echo "Working tree is dirty. Commit or stash changes before releasing."; \
-		exit 1; \
-	fi; \
-	sed -i '' "s/version = \"$$current\"/version = \"$$new\"/" plugin/build.gradle.kts; \
-	echo "🆙 Bumping version: $$current → $$new"; \
-	git add plugin/build.gradle.kts; \
-	git commit -m "chore: bump version to $$new"; \
-	git tag -a "v$$new" -m "Release $$new"; \
-	git push origin HEAD; \
-	git push origin "v$$new"; \
-	$(MAKE) publish-portal; \
-	$(MAKE) publish-central
+	$(RELEASE_WORKFLOW) tag-and-publish-release --version "$(VERSION)"
 
 # ============================================================================
 # Versioning
 # ============================================================================
 
 bump-pre:
-	@current=$$(grep 'version = ' plugin/build.gradle.kts | sed 's/.*"\(.*\)"/\1/'); \
-	if echo "$$current" | grep -q '\-alpha\.'; then \
-		num=$$(echo "$$current" | sed 's/.*-alpha\.\([0-9]*\)/\1/'); \
-		base=$$(echo "$$current" | sed 's/-alpha\.[0-9]*//'); \
-		new="$$base-alpha.$$((num + 1))"; \
-	else \
-		new="$$current-alpha.1"; \
-	fi; \
-	sed -i '' "s/version = \"$$current\"/version = \"$$new\"/" plugin/build.gradle.kts; \
-	echo "🆙 Bumping version: $$current → $$new"; \
-	git add plugin/build.gradle.kts && git commit -m "chore: bump version to $$new"
+	$(RELEASE_WORKFLOW) bump-pre
 
 # ============================================================================
 
@@ -144,7 +104,10 @@ publish-local:
 	./gradlew :plugin:publishToMavenLocal
 
 publish-portal:
-	build-logic/scripts/publish-portal.main.kts
+	$(RELEASE_WORKFLOW) publish-portal
 
 publish-central:
-	build-logic/scripts/publish-central.main.kts
+	$(RELEASE_WORKFLOW) publish-central
+
+release-doctor:
+	$(RELEASE_WORKFLOW) doctor
