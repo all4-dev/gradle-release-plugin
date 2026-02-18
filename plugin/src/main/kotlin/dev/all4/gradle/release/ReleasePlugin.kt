@@ -1,5 +1,6 @@
 package dev.all4.gradle.release
 
+import org.gradle.api.GradleException
 import org.gradle.api.Plugin
 import org.gradle.api.Project
 import org.gradle.api.credentials.HttpHeaderCredentials
@@ -145,12 +146,16 @@ public class ReleasePlugin : Plugin<Project> {
                     description = "Publishes $groupName to maven-standalone"
 
                     doFirst {
+                        validateLibraryGroupForPublishing(libGroup)
+
+                        val configuredVersion =
+                            libGroup.version.orNull ?: ext.version.orNull ?: "(not set)"
                         if (ext.dryRun.get()) {
                             logger.lifecycle(
-                                "🔍 [DRY-RUN] Would publish $groupName v${ext.version.get()}"
+                                "🔍 [DRY-RUN] Would publish $groupName v$configuredVersion"
                             )
                         } else {
-                            logger.lifecycle("📦 Publishing $groupName v${ext.version.get()}")
+                            logger.lifecycle("📦 Publishing $groupName v$configuredVersion")
                         }
                     }
 
@@ -176,6 +181,8 @@ public class ReleasePlugin : Plugin<Project> {
                     group = "publishing"
                     description = "Publishes $groupName to Maven Local (~/.m2/repository)"
 
+                    doFirst { validateLibraryGroupForPublishing(libGroup) }
+
                     if (!ext.dryRun.get()) {
                         for (modulePath in libGroup.modules.get()) {
                             if (findProject(modulePath) != null) {
@@ -190,6 +197,8 @@ public class ReleasePlugin : Plugin<Project> {
                 tasks.register("publish${capitalizedName}ToGitHubPages") {
                     group = "publishing"
                     description = "Publishes $groupName to GitHub Pages"
+
+                    doFirst { validateLibraryGroupForPublishing(libGroup) }
 
                     if (!ext.dryRun.get()) {
                         for (modulePath in libGroup.modules.get()) {
@@ -208,6 +217,8 @@ public class ReleasePlugin : Plugin<Project> {
                     group = "publishing"
                     description = "Publishes $groupName to GitHub Packages"
 
+                    doFirst { validateLibraryGroupForPublishing(libGroup) }
+
                     if (!ext.dryRun.get()) {
                         for (modulePath in libGroup.modules.get()) {
                             if (findProject(modulePath) != null) {
@@ -224,6 +235,8 @@ public class ReleasePlugin : Plugin<Project> {
                 tasks.register("publish${capitalizedName}ToMavenCentral") {
                     group = "publishing"
                     description = "Publishes $groupName to Maven Central"
+
+                    doFirst { validateLibraryGroupForPublishing(libGroup) }
 
                     if (!ext.dryRun.get()) {
                         for (modulePath in libGroup.modules.get()) {
@@ -254,6 +267,100 @@ public class ReleasePlugin : Plugin<Project> {
             description = "Shows publishing configuration"
             doLast { logger.lifecycle(buildPublishingInfo(ext)) }
         }
+    }
+
+    private fun Project.validateLibraryGroupForPublishing(libGroup: dev.all4.gradle.release.model.LibraryGroup) {
+        val groupName = libGroup.getName()
+        val modulePaths = libGroup.moduleProjectPaths()
+        if (modulePaths.isEmpty()) {
+            throw GradleException(
+                """
+                |❌ releaseConfig.libraryGroups["$groupName"] has no modules configured.
+                |
+                |✅ Solution:
+                |  - Add at least one module project path.
+                |  - Example:
+                |      libraryGroups {
+                |          register("$groupName") { modules.add(":libs:$groupName") }
+                |      }
+                """.trimMargin()
+            )
+        }
+
+        val availablePaths = rootProject.allprojects.map { it.path }.toSet()
+        val missingPaths = modulePaths.filterNot { it in availablePaths }
+        if (missingPaths.isNotEmpty()) {
+            val availablePreview = availablePaths.sorted().take(25).joinToString(", ")
+            val details = missingPaths.joinToString("\n") { invalidPath ->
+                val suggestion = suggestModulePath(invalidPath, availablePaths)
+                if (suggestion != null && suggestion != invalidPath) {
+                    """  - $invalidPath (did you mean "$suggestion"?)"""
+                } else {
+                    "  - $invalidPath"
+                }
+            }
+            throw GradleException(
+                """
+                |❌ Invalid module path(s) in releaseConfig.libraryGroups["$groupName"].
+                |
+                |$details
+                |
+                |✅ Solution:
+                |  1) Use Gradle project paths that exist in settings.gradle(.kts).
+                |  2) Prefer format like ":libs:logger" (not custom aliases).
+                |
+                |Available project paths (first 25):
+                |  $availablePreview
+                """.trimMargin()
+            )
+        }
+
+        val unspecifiedModules =
+            modulePaths
+                .mapNotNull { modulePath ->
+                    val moduleProject = rootProject.findProject(modulePath) ?: return@mapNotNull null
+                    val moduleVersion = moduleProject.version.toString()
+                    if (moduleVersion == "unspecified" || moduleVersion.isBlank()) {
+                        modulePath to moduleVersion
+                    } else {
+                        null
+                    }
+                }
+
+        if (unspecifiedModules.isNotEmpty()) {
+            val details =
+                unspecifiedModules.joinToString("\n") { (modulePath, version) ->
+                    "  - $modulePath (version=$version)"
+                }
+            throw GradleException(
+                """
+                |❌ Cannot publish releaseConfig.libraryGroups["$groupName"] because one or more modules use version "unspecified".
+                |
+                |$details
+                |
+                |Publishing these modules will create Maven coordinates ending in ":unspecified".
+                |
+                |✅ Solution:
+                |  1) Set explicit version in each affected module build.gradle(.kts), for example:
+                |       version = property("version.$groupName").toString()
+                |  2) Define that key in gradle.properties, for example:
+                |       version.$groupName=1.0.0-alpha.3
+                """.trimMargin()
+            )
+        }
+    }
+
+    private fun suggestModulePath(invalidPath: String, availablePaths: Set<String>): String? {
+        val normalized = invalidPath.trim()
+        if (normalized.isBlank()) return null
+
+        val leaf = normalized.substringAfterLast(':')
+        val exactLeafMatches = availablePaths.filter { it.substringAfterLast(':') == leaf }.sorted()
+        if (exactLeafMatches.isNotEmpty()) return exactLeafMatches.first()
+
+        val partialMatches =
+            availablePaths.filter { it.contains(":$leaf") || it.contains(leaf) }.sorted()
+        return partialMatches.firstOrNull()
     }
 
     private fun Project.registerChangelogTasks(ext: PublishingExtension) {

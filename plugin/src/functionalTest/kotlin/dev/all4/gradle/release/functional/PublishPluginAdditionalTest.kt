@@ -195,6 +195,118 @@ class PublishPluginAdditionalTest {
     }
 
     @Test
+    fun `plugin fails with friendly error when library group has invalid module path`() {
+        settingsFile.writeText(
+            """
+            rootProject.name = "test-project"
+            include(":libs:logger")
+            """
+                .trimIndent()
+        )
+
+        val loggerDir = File(testProjectDir, "libs/logger")
+        loggerDir.mkdirs()
+        File(loggerDir, "build.gradle.kts")
+            .writeText(
+                """
+            plugins {
+                id("dev.all4.release")
+                `java-library`
+            }
+            version = "1.0.0"
+            """
+                    .trimIndent()
+            )
+
+        buildFile.writeText(
+            """
+            plugins {
+                id("dev.all4.release")
+            }
+
+            releaseConfig {
+                group.set("com.example")
+                libraryGroups {
+                    register("logger") {
+                        modules.add(":libs:core:logger")
+                    }
+                }
+                destinations {
+                    mavenStandalone {
+                        enabled.set(true)
+                        path.set(file("build/maven-standalone"))
+                    }
+                }
+            }
+            """
+                .trimIndent()
+        )
+
+        val result =
+            GradleRunner.create()
+                .forwardOutput()
+                .withProjectDir(testProjectDir)
+                .withArguments("publishLoggerToStandalone", "--stacktrace")
+                .withPluginClasspath()
+                .buildAndFail()
+
+        assert(result.output.contains("Invalid module path(s)"))
+        assert(result.output.contains(":libs:core:logger"))
+        assert(result.output.contains("did you mean \":libs:logger\"?"))
+        assert(result.output.contains("✅ Solution"))
+    }
+
+    @Test
+    fun `plugin fails with friendly error when module version is unspecified`() {
+        buildFile.writeText(
+            """
+            plugins {
+                id("dev.all4.release")
+            }
+
+            releaseConfig {
+                group.set("com.example")
+                libraryGroups {
+                    register("core") {
+                        modules.add(":core")
+                    }
+                }
+                destinations {
+                    mavenStandalone {
+                        enabled.set(true)
+                        path.set(file("build/maven-standalone"))
+                    }
+                }
+            }
+            """
+                .trimIndent()
+        )
+
+        subprojectBuildFile.writeText(
+            """
+            plugins {
+                id("dev.all4.release")
+                `java-library`
+            }
+            """
+                .trimIndent()
+        )
+
+        val result =
+            GradleRunner.create()
+                .forwardOutput()
+                .withProjectDir(testProjectDir)
+                .withArguments("publishCoreToStandalone", "--stacktrace")
+                .withPluginClasspath()
+                .buildAndFail()
+
+        assert(result.output.contains("version \"unspecified\""))
+        assert(result.output.contains(":core (version=unspecified)"))
+        assert(result.output.contains("✅ Solution"))
+        assert(result.output.contains("version = property(\"version.core\").toString()"))
+    }
+
+    @Test
     fun `plugin auto-detects root vs subproject`() {
         buildFile.writeText(
             """
