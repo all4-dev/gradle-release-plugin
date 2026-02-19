@@ -65,12 +65,12 @@ private object ReleaseWorkflowConstants {
   val FALSE_VALUES = setOf("0", "false", "no", "n", "off")
 
   val VERSION_DECLARATION_REGEX = Regex(
-    pattern = """^version\\s*=\\s*\"([^\"]+)\"\\s*$""",
+    pattern = """^version\s*=\s*"([^"]+)"\s*$""",
     option = RegexOption.MULTILINE,
   )
 
   val GROUP_DECLARATION_REGEX = Regex(
-    pattern = """^group\\s*=\\s*\"([^\"]+)\"\\s*$""",
+    pattern = """^group\s*=\s*"([^"]+)"\s*$""",
     option = RegexOption.MULTILINE,
   )
 
@@ -80,8 +80,8 @@ private object ReleaseWorkflowConstants {
   )
 
   val POM_ARTIFACT_ID_REGEX = Regex("""<artifactId>([^<]+)</artifactId>""")
-  val STABLE_VERSION_REGEX = Regex("""^\\d+\\.\\d+\\.\\d+$""")
-  val ALPHA_VERSION_REGEX = Regex("""^(.*)-alpha\\.(\\d+)$""")
+  val STABLE_VERSION_REGEX = Regex("""^\d+\.\d+\.\d+$""")
+  val ALPHA_VERSION_REGEX = Regex("""^(.*)-alpha\.(\d+)$""")
 }
 
 private object SecretMappings {
@@ -395,7 +395,7 @@ internal class UnifiedReleaseWorkflow(
         result.output.ifBlank { "No output from 1Password CLI." },
       )
     }
-    return result.output
+    return result.output.trimEnd('\n', '\r')
   }
 
   private fun ensureCleanGitTree() {
@@ -603,7 +603,7 @@ internal class UnifiedReleaseWorkflow(
       .redirectErrorStream(true)
       .start()
 
-    val output = process.inputStream.bufferedReader().use { it.readText() }.trim()
+    val output = process.inputStream.bufferedReader().use { it.readText() }
 
     return CommandResult(
       status = process.waitFor(),
