@@ -44,6 +44,8 @@ const REQUIRED_CENTRAL_KEYS = [
   "ORG_GRADLE_PROJECT_signing_gnupg_passphrase",
 ] as const;
 
+let authPromptAnnounced = false;
+
 function fail(message: string, solution?: string): never {
   console.error(`\n❌ ${message}`);
   if (solution) {
@@ -58,6 +60,20 @@ function info(message: string): void {
 
 function ok(message: string): void {
   console.log(`✅ ${message}`);
+}
+
+function announcePublishAuthRequired(): void {
+  if (authPromptAnnounced) {
+    return;
+  }
+  authPromptAnnounced = true;
+
+  const phrase = "Authentication required for Maven publishing.";
+  const sayResult = runCommand("say", [phrase], { stdio: "ignore" });
+  if (sayResult.status !== 0) {
+    process.stdout.write("\u0007");
+    info(phrase);
+  }
 }
 
 function runCommand(
@@ -177,15 +193,23 @@ function ensureOpInstalled(): void {
   ok(`1Password CLI detected (${result.stdout.trim()})`);
 }
 
-function ensureOpSignedIn(): void {
-  const result = runCommand("op", ["whoami"]);
-  if (result.status !== 0) {
-    fail(
-      "1Password session is not active",
-      "Run: op signin\nThen retry this command.",
-    );
+function authHintForOpFailure(details: string): string {
+  const normalized = details.toLowerCase();
+  if (
+    normalized.includes("not signed in") ||
+    normalized.includes("authorization timeout")
+  ) {
+    return [
+      "1Password authentication is required.",
+      "1) Run: op signin --force",
+      "2) Approve the request in the 1Password desktop app (keep it unlocked).",
+      "3) Ensure app integration is enabled: Settings > Developer > Integrate with 1Password CLI.",
+      "4) Retry the command in the same terminal session.",
+      "",
+      "Alternative for automation/CI: set OP_SERVICE_ACCOUNT_TOKEN.",
+    ].join("\n");
   }
-  ok("1Password session is active");
+  return "Verify vault/item/section/field names and access permissions.";
 }
 
 function readSecret(secretRef: string): string {
@@ -196,13 +220,14 @@ function readSecret(secretRef: string): string {
       .join("\n");
     fail(
       `Cannot read 1Password secret: ${secretRef}`,
-      `${details || "No additional output"}\n\nVerify vault/item/section/field names and access permissions.`,
+      `${details || "No additional output"}\n\n${authHintForOpFailure(details)}`,
     );
   }
   return result.stdout.replace(/\r?\n$/, "");
 }
 
 function validateSecretAccess(mappings: Mapping, label: string): void {
+  announcePublishAuthRequired();
   for (const [key, ref] of Object.entries(mappings)) {
     readSecret(ref);
     ok(`${label}: ${key}`);
@@ -319,6 +344,7 @@ function pushRelease(version: string, dryRun: boolean): void {
 }
 
 function publishPortal(portalMappings: Mapping, dryRun: boolean): void {
+  announcePublishAuthRequired();
   const key = readSecret(portalMappings.GRADLE_PUBLISH_KEY);
   const secret = readSecret(portalMappings.GRADLE_PUBLISH_SECRET);
   const passphrase = readSecret(portalMappings.SIGNING_PASSPHRASE);
@@ -342,6 +368,7 @@ function publishPortal(portalMappings: Mapping, dryRun: boolean): void {
 }
 
 function publishCentral(centralMappings: Mapping, dryRun: boolean): void {
+  announcePublishAuthRequired();
   const username = readSecret(centralMappings.ORG_GRADLE_PROJECT_mavenCentralUsername);
   const password = readSecret(centralMappings.ORG_GRADLE_PROJECT_mavenCentralPassword);
   const passphrase = readSecret(centralMappings.ORG_GRADLE_PROJECT_signing_gnupg_passphrase);
@@ -446,7 +473,6 @@ function parseCli(rawArgs: string[]): { command: Command; options: CliOptions } 
 
 function runDoctor(portalMappings: Mapping, centralMappings: Mapping): void {
   ensureOpInstalled();
-  ensureOpSignedIn();
   validateSecretAccess(portalMappings, "portal");
   validateSecretAccess(centralMappings, "central");
   ok("Release doctor checks passed");
@@ -563,12 +589,10 @@ function main(): void {
       break;
     case "publish-portal":
       ensureOpInstalled();
-      ensureOpSignedIn();
       publishPortal(portal, options.dryRun);
       break;
     case "publish-central":
       ensureOpInstalled();
-      ensureOpSignedIn();
       publishCentral(central, options.dryRun);
       break;
     case "tag-and-publish-pre-release":
