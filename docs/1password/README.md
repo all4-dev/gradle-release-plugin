@@ -1,5 +1,7 @@
 # 1Password Integration Guide
 
+<style>pre{overflow-x:auto}pre code{white-space:pre!important;display:inline-block;min-width:120ch}</style>
+
 This guide explains how to use 1Password CLI to securely manage credentials for publishing.
 
 > 💡 **Important**: You can use **ANY names** you want for vaults, items, sections, and fields! The only requirement is that your secret references must **exactly match** the names in 1Password. See the [Path Structure Guide](PATHS.md) for details.

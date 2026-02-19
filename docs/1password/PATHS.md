@@ -1,5 +1,7 @@
 # Understanding 1Password Secret References
 
+<style>pre{overflow-x:auto}pre code{white-space:pre!important;display:inline-block;min-width:120ch}</style>
+
 This guide explains how 1Password constructs secret references (paths) and how you can customize them to fit your needs.
 
 ## 🗺️ Path Structure

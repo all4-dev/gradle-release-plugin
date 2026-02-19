@@ -1,5 +1,7 @@
 # 1Password Integration Documentation
 
+<style>pre{overflow-x:auto}pre code{white-space:pre!important;display:inline-block;min-width:120ch}</style>
+
 Complete guide for using 1Password CLI with the Gradle Release Plugin.
 
 ## 📚 Documentation Index
