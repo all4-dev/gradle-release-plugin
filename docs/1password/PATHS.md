@@ -7,30 +7,29 @@ This guide explains how 1Password constructs secret references (paths) and how y
 A 1Password secret reference follows this format:
 
 ```
-op://vault/item/section/field
-
-parts:
-- vault
-- item
-- section (optional)
-- field
+op://Vault/Item/Section/Field
+    │    │     │      │      └─ Field name
+    │    │     │      └──────── Section name (optional)
+    │    │     └─────────────── Item title
+    │    └───────────────────── Vault name
+    └────────────────────────── Protocol
 ```
 
 ### Examples:
 
 ```bash
 # With section
-op://Private/Gradle Credentials/Maven/username
-# vault: Private
-# item:  Gradle Credentials
-# section: Maven
-# field: username
+op://Private/Gradle Publishing Credentials/Sonatype - Maven Central/username
+       │            │                            │                    └─ field
+       │            │                            └────────────────────── section
+       │            └─────────────────────────────────────────────────── item
+       └──────────────────────────────────────────────────────────────── vault
 
 # Without section (top-level field)
 op://Private/My API Keys/github_token
-# vault: Private
-# item:  My API Keys
-# field: github_token
+       │            │          └─ field
+       │            └──────────── item
+       └───────────────────────── vault
 ```
 
 ---
@@ -104,26 +103,26 @@ op://Work/gradle/gpg/phrase
 **1Password structure:**
 ```
 Vault: "Private"
-  Item: "GRP Publishing"
-    Section: "Sonatype"
+  Item: "Gradle Release Plugin - Publishing"
+    Section: "Sonatype Maven Central"
       Field: "username"
       Field: "password"
-    Section: "Portal"
+    Section: "Gradle Plugin Portal"
       Field: "apiKey"
       Field: "apiSecret"
-    Section: "GPG"
+    Section: "GPG Signing Key"
       Field: "keyName"
       Field: "passphrase"
 ```
 
 **Secret references:**
 ```bash
-op://Private/GRP Publishing/Sonatype/username
-op://Private/GRP Publishing/Sonatype/password
-op://Private/GRP Publishing/Portal/apiKey
-op://Private/GRP Publishing/Portal/apiSecret
-op://Private/GRP Publishing/GPG/keyName
-op://Private/GRP Publishing/GPG/passphrase
+op://Private/Gradle Release Plugin - Publishing/Sonatype Maven Central/username
+op://Private/Gradle Release Plugin - Publishing/Sonatype Maven Central/password
+op://Private/Gradle Release Plugin - Publishing/Gradle Plugin Portal/apiKey
+op://Private/Gradle Release Plugin - Publishing/Gradle Plugin Portal/apiSecret
+op://Private/Gradle Release Plugin - Publishing/GPG Signing Key/keyName
+op://Private/Gradle Release Plugin - Publishing/GPG Signing Key/passphrase
 ```
 
 ---
@@ -157,19 +156,19 @@ op://YourVaultName/...
 ### 2. Item → Second Part
 The item title becomes the second segment:
 ```bash
-op://vault/item/...
+op://YourVaultName/Your Item Title/...
 ```
 
 ### 3. Section → Third Part (Optional)
 If you use sections, the section name becomes the third segment:
 ```bash
-op://vault/item/section/...
+op://YourVaultName/Your Item Title/Your Section Name/...
 ```
 
 ### 4. Field → Last Part
 The field name (label) becomes the final segment:
 ```bash
-op://vault/item/section/field
+op://YourVaultName/Your Item Title/Your Section Name/field_name
 ```
 
 ---
@@ -216,11 +215,8 @@ op://vault/item/section/field
 
 2. **Exact spacing:**
    ```bash
-   # valid (single space)
-   op://Private/Maven Central/username
-
-   # invalid (double space in section name)
-   op://Private/Maven  Central/username
+   op://Private/Maven Central/username  ≠  op://Private/Maven  Central/username
+                      ^no extra space           ^extra space
    ```
 
 3. **Special characters:**
@@ -357,13 +353,11 @@ The **only rule**: Your references must **exactly match** your 1Password structu
 
 ```bash
 # If you create with these names:
-op item create \
-  --title="My Publishing Stuff" \
-  'maven.user[text]=...'
+op item create --title="My Publishing Stuff" 'maven.user[text]=...'
 
 # You MUST reference with those exact names:
 op://Private/My Publishing Stuff/maven/user
-#      item must match       section/field must match
+              └─ must match ────┘  └─ must match ─┘
 ```
 
 ---
@@ -428,7 +422,8 @@ username=op://Private/Item With Spaces/field
 ## 📚 Related Documentation
 
 - [Main 1Password Guide](README.md)
-- [1Password Docs Index](INDEX.md)
+- [Setup Guide](SETUP.md)
+- [Examples](EXAMPLES.md)
 - [1Password Secret References](https://developer.1password.com/docs/cli/secret-references/)
 
 ---
