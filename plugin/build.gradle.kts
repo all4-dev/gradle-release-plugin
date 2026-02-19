@@ -75,7 +75,7 @@ publishing {
     repositories {
         maven {
             name = "maven-standalone"
-            url = uri("${System.getProperty("user.home")}/Code/devkit/gradle/maven-standalone")
+            url = uri(System.getenv("MAVEN_STANDALONE_PATH") ?: error("MAVEN_STANDALONE_PATH is not set"))
         }
     }
 
