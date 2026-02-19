@@ -101,7 +101,7 @@ bump-pre:
 # ============================================================================
 
 publish-local:
-	./gradlew :plugin:publishToMavenLocal
+	$(RELEASE_WORKFLOW) publish-local
 
 publish-portal:
 	$(RELEASE_WORKFLOW) publish-portal

@@ -9,6 +9,7 @@ type Command =
   | "help"
   | "doctor"
   | "bump-pre"
+  | "publish-local"
   | "publish-portal"
   | "publish-central"
   | "tag-and-publish-pre-release"
@@ -22,15 +23,29 @@ type CliOptions = {
 };
 
 type Mapping = Record<string, string>;
+type PublishSide = "local" | "portal" | "central";
+type PublishDestination = {
+  side: PublishSide;
+  locationType: "path" | "url";
+  location: string;
+};
+type ArtifactDetails = {
+  groupId: string;
+  artifactId: string;
+  version: string;
+  pluginId: string;
+};
 
 const SCRIPT_PATH = resolve(process.argv[1]);
 const SCRIPT_DIR = dirname(SCRIPT_PATH);
 const ROOT = resolve(SCRIPT_DIR, "../..");
 const PLUGIN_BUILD_FILE = resolve(ROOT, "plugin/build.gradle.kts");
+const PLUGIN_POM_FILE = resolve(ROOT, "plugin/build/publications/pluginMaven/pom-default.xml");
 const SCRIPTS_DIR = resolve(ROOT, "build-logic/scripts");
 const OP_API_KEYS_SCRIPT = resolve(SCRIPTS_DIR, "op-api-keys.main.kts");
 const PUBLISH_PORTAL_SCRIPT = resolve(SCRIPTS_DIR, "publish-portal.main.kts");
 const PUBLISH_CENTRAL_SCRIPT = resolve(SCRIPTS_DIR, "publish-central.main.kts");
+const FALLBACK_ARTIFACT_ID = "release-plugin";
 
 const REQUIRED_PORTAL_KEYS = [
   "GRADLE_PUBLISH_KEY",
@@ -260,6 +275,108 @@ function getCurrentVersion(): string {
   return match[1];
 }
 
+function getCurrentGroupId(): string {
+  const content = readFileSync(PLUGIN_BUILD_FILE, "utf8");
+  const match = content.match(/^group\s*=\s*"([^"]+)"\s*$/m);
+  if (!match) {
+    fail(
+      "Unable to read plugin group",
+      `Expected line like: group = "x.y.z" in ${PLUGIN_BUILD_FILE}`,
+    );
+  }
+  return match[1];
+}
+
+function getPluginId(): string {
+  const content = readFileSync(PLUGIN_BUILD_FILE, "utf8");
+  const match = content.match(/create\("release"\)\s*\{[\s\S]*?id\s*=\s*"([^"]+)"/m);
+  if (!match) {
+    fail(
+      "Unable to read Gradle plugin ID",
+      `Expected id = "..." in gradlePlugin.plugins block inside ${PLUGIN_BUILD_FILE}`,
+    );
+  }
+  return match[1];
+}
+
+function getPublishedArtifactIdOrFallback(): string {
+  if (!existsSync(PLUGIN_POM_FILE)) {
+    return FALLBACK_ARTIFACT_ID;
+  }
+  const pom = readFileSync(PLUGIN_POM_FILE, "utf8");
+  const match = pom.match(/<artifactId>([^<]+)<\/artifactId>/);
+  return match?.[1]?.trim() || FALLBACK_ARTIFACT_ID;
+}
+
+function getArtifactDetails(): ArtifactDetails {
+  return {
+    groupId: getCurrentGroupId(),
+    artifactId: getPublishedArtifactIdOrFallback(),
+    version: getCurrentVersion(),
+    pluginId: getPluginId(),
+  };
+}
+
+function formatRepoPath(groupId: string): string {
+  return groupId.split(".").join("/");
+}
+
+function buildDestination(side: PublishSide, artifact: ArtifactDetails): PublishDestination {
+  switch (side) {
+    case "local": {
+      const home = process.env.HOME;
+      const suffix = `${formatRepoPath(artifact.groupId)}/${artifact.artifactId}/${artifact.version}`;
+      return {
+        side,
+        locationType: "path",
+        location: home
+          ? `${home}/.m2/repository/${suffix}`
+          : `~/.m2/repository/${suffix}`,
+      };
+    }
+    case "portal":
+      return {
+        side,
+        locationType: "url",
+        location: `https://plugins.gradle.org/plugin/${artifact.pluginId}`,
+      };
+    case "central":
+      return {
+        side,
+        locationType: "url",
+        location: `https://repo1.maven.org/maven2/${formatRepoPath(artifact.groupId)}/${artifact.artifactId}/${artifact.version}/`,
+      };
+  }
+}
+
+function printPublishReport(sides: PublishSide[]): void {
+  const uniqueSides = [...new Set(sides)];
+  if (uniqueSides.length === 0) {
+    return;
+  }
+
+  const artifact = getArtifactDetails();
+  const destinations = uniqueSides.map((side) => buildDestination(side, artifact));
+
+  console.log("\n📦 Publish mini-report");
+  console.log(`artifact = ${artifact.groupId}:${artifact.artifactId}:${artifact.version}`);
+  console.log(`pluginId = ${artifact.pluginId}`);
+  console.log("");
+
+  for (const destination of destinations) {
+    const prefix = destination.locationType === "path" ? "PATH" : "URL ";
+    console.log(`${prefix} ${destination.side}: ${destination.location}`);
+  }
+
+  console.log("\nCopy/Paste (libs.versions.toml)");
+  console.log(`[versions]\nall4Release = "${artifact.version}"`);
+  console.log(`[plugins]\nall4-release = { id = "${artifact.pluginId}", version.ref = "all4Release" }`);
+  console.log(`[libraries]\nall4-release-plugin = { module = "${artifact.groupId}:${artifact.artifactId}", version.ref = "all4Release" }`);
+  console.log("");
+  console.log(`all4-release = { id = "${artifact.pluginId}", version = "${artifact.version}" }`);
+  console.log(`all4-release-plugin = { module = "${artifact.groupId}:${artifact.artifactId}", version = "${artifact.version}" }`);
+}
+
 function setVersion(newVersion: string): void {
   const content = readFileSync(PLUGIN_BUILD_FILE, "utf8");
   const updated = content.replace(
@@ -343,6 +460,19 @@ function pushRelease(version: string, dryRun: boolean): void {
   ok(`Pushed branch + tag v${version}`);
 }
 
+function publishLocal(dryRun: boolean): void {
+  if (dryRun) {
+    info("[dry-run] ./gradlew :plugin:publishToMavenLocal");
+    return;
+  }
+  runCommandOrFail(
+    "./gradlew",
+    [":plugin:publishToMavenLocal"],
+    "Maven local publish",
+    { stdio: "inherit" },
+  );
+}
+
 function publishPortal(portalMappings: Mapping, dryRun: boolean): void {
   announcePublishAuthRequired();
   const key = readSecret(portalMappings.GRADLE_PUBLISH_KEY);
@@ -408,6 +538,7 @@ Commands:
   help
   doctor
   bump-pre
+  publish-local
   publish-portal
   publish-central
   tag-and-publish-pre-release
@@ -429,6 +560,7 @@ function parseCli(rawArgs: string[]): { command: Command; options: CliOptions } 
     "help",
     "doctor",
     "bump-pre",
+    "publish-local",
     "publish-portal",
     "publish-central",
     "tag-and-publish-pre-release",
@@ -493,11 +625,17 @@ function runBumpPre(options: CliOptions): void {
   commitVersion(next, options.dryRun);
 }
 
+function runPublishLocal(options: CliOptions): void {
+  publishLocal(options.dryRun);
+  printPublishReport(["local"]);
+}
+
 function runTagAndPublishPreRelease(
   options: CliOptions,
   portalMappings: Mapping,
   centralMappings: Mapping,
 ): void {
+  const publishedSides: PublishSide[] = [];
   ensureCleanGitTree();
   runDoctor(portalMappings, centralMappings);
 
@@ -516,13 +654,17 @@ function runTagAndPublishPreRelease(
   if (!options.skipPublish) {
     info("Publishing to Gradle Plugin Portal...");
     publishPortal(portalMappings, options.dryRun);
+    publishedSides.push("portal");
     info("Publishing to Maven Central...");
     publishCentral(centralMappings, options.dryRun);
+    publishedSides.push("central");
   }
 
   if (!options.noPush) {
     pushRelease(next, options.dryRun);
   }
+
+  printPublishReport(publishedSides);
 }
 
 function runTagAndPublishRelease(
@@ -530,6 +672,7 @@ function runTagAndPublishRelease(
   portalMappings: Mapping,
   centralMappings: Mapping,
 ): void {
+  const publishedSides: PublishSide[] = [];
   const targetVersion = options.version;
   if (!targetVersion) {
     fail(
@@ -562,13 +705,17 @@ function runTagAndPublishRelease(
   if (!options.skipPublish) {
     info("Publishing to Gradle Plugin Portal...");
     publishPortal(portalMappings, options.dryRun);
+    publishedSides.push("portal");
     info("Publishing to Maven Central...");
     publishCentral(centralMappings, options.dryRun);
+    publishedSides.push("central");
   }
 
   if (!options.noPush) {
     pushRelease(targetVersion, options.dryRun);
   }
+
+  printPublishReport(publishedSides);
 }
 
 function main(): void {
@@ -578,29 +725,50 @@ function main(): void {
     return;
   }
 
-  const { portal, central } = validateScriptContracts();
+  let mappingsCache: { portal: Mapping; central: Mapping } | null = null;
+  const getMappings = (): { portal: Mapping; central: Mapping } => {
+    if (!mappingsCache) {
+      mappingsCache = validateScriptContracts();
+    }
+    return mappingsCache;
+  };
 
   switch (command) {
-    case "doctor":
+    case "doctor": {
+      const { portal, central } = getMappings();
       runDoctor(portal, central);
       break;
+    }
     case "bump-pre":
       runBumpPre(options);
       break;
-    case "publish-portal":
+    case "publish-local":
+      runPublishLocal(options);
+      break;
+    case "publish-portal": {
+      const { portal } = getMappings();
       ensureOpInstalled();
       publishPortal(portal, options.dryRun);
+      printPublishReport(["portal"]);
       break;
-    case "publish-central":
+    }
+    case "publish-central": {
+      const { central } = getMappings();
       ensureOpInstalled();
       publishCentral(central, options.dryRun);
+      printPublishReport(["central"]);
       break;
-    case "tag-and-publish-pre-release":
+    }
+    case "tag-and-publish-pre-release": {
+      const { portal, central } = getMappings();
       runTagAndPublishPreRelease(options, portal, central);
       break;
-    case "tag-and-publish-release":
+    }
+    case "tag-and-publish-release": {
+      const { portal, central } = getMappings();
       runTagAndPublishRelease(options, portal, central);
       break;
+    }
     case "help":
       printHelp();
       break;
