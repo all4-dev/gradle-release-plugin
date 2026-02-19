@@ -300,7 +300,7 @@ class PublishPluginAdditionalTest {
                 .withPluginClasspath()
                 .buildAndFail()
 
-        assert(result.output.contains("version \"unspecified\""))
+        assert(result.output.contains("version not set (blank/\"unspecified\"/\"undefined\")"))
         assert(result.output.contains(":core (version=unspecified)"))
         assert(result.output.contains("✅ Solution"))
         assert(result.output.contains("version = property(\"version.core\").toString()"))

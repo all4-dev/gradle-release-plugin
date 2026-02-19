@@ -315,39 +315,60 @@ public class ReleasePlugin : Plugin<Project> {
             )
         }
 
-        val unspecifiedModules =
+        val modulesWithUnsetVersion =
             modulePaths
                 .mapNotNull { modulePath ->
                     val moduleProject = rootProject.findProject(modulePath) ?: return@mapNotNull null
                     val moduleVersion = moduleProject.version.toString()
-                    if (moduleVersion == "unspecified" || moduleVersion.isBlank()) {
+                    if (isUnsetVersion(moduleVersion)) {
                         modulePath to moduleVersion
                     } else {
                         null
                     }
                 }
 
-        if (unspecifiedModules.isNotEmpty()) {
+        if (modulesWithUnsetVersion.isNotEmpty()) {
+            val versionKey =
+                libGroup.versionKey.orNull?.takeIf { it.isNotBlank() } ?: "version.$groupName"
+            val groupVersion = libGroup.version.orNull?.takeIf { it.isNotBlank() } ?: "(not set)"
+            val rootVersion =
+                rootProject.extensions.findByType<PublishingExtension>()
+                    ?.version
+                    ?.orNull
+                    ?.takeIf { it.isNotBlank() }
+                    ?: "(not set)"
             val details =
-                unspecifiedModules.joinToString("\n") { (modulePath, version) ->
+                modulesWithUnsetVersion.joinToString("\n") { (modulePath, version) ->
                     "  - $modulePath (version=$version)"
                 }
             throw GradleException(
                 """
-                |❌ Cannot publish releaseConfig.libraryGroups["$groupName"] because one or more modules use version "unspecified".
+                |❌ Cannot publish releaseConfig.libraryGroups["$groupName"] because one or more modules have version not set (blank/"unspecified"/"undefined").
                 |
                 |$details
                 |
-                |Publishing these modules will create Maven coordinates ending in ":unspecified".
+                |Current release config:
+                |  - releaseConfig.libraryGroups["$groupName"].version = $groupVersion
+                |  - releaseConfig.version = $rootVersion
+                |
+                |Publishing these modules will create invalid Maven coordinates (for example ending in ":unspecified").
                 |
                 |✅ Solution:
                 |  1) Set explicit version in each affected module build.gradle(.kts), for example:
-                |       version = property("version.$groupName").toString()
-                |  2) Define that key in gradle.properties, for example:
-                |       version.$groupName=1.0.0-alpha.3
+                |       version = property("$versionKey").toString()
+                |  2) Define that key in gradle.properties (or your version catalog source), for example:
+                |       $versionKey=1.0.0-alpha.3
+                |  3) Ensure your releaseConfig.libraryGroups["$groupName"].modules points to modules with explicit version.
                 """.trimMargin()
             )
         }
+    }
+
+    private fun isUnsetVersion(version: String): Boolean {
+        val normalized = version.trim()
+        if (normalized.isEmpty()) return true
+        return normalized.equals("unspecified", ignoreCase = true) ||
+            normalized.equals("undefined", ignoreCase = true)
     }
 
     private fun suggestModulePath(invalidPath: String, availablePaths: Set<String>): String? {
