@@ -10,7 +10,7 @@ Complete guide for using 1Password CLI with the Gradle Release Plugin.
 Complete integration guide covering:
 - Prerequisites and installation
 - Setup options (single item vs multiple items)
-- Usage methods (gradle.properties, env vars, scripts)
+- Usage methods (gradle.properties, env vars, Makefile/convention tasks)
 - Verification and troubleshooting
 - Best practices
 
@@ -58,6 +58,7 @@ op item create \
 # Method 1: Via Makefile (easiest)
 make publish-portal
 make publish-central
+make publish-local
 
 # Method 2: Via gradle.properties
 sonatype.username=op://Private/Gradle Publishing Credentials/Sonatype - Maven Central/username

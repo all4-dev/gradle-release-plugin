@@ -176,9 +176,9 @@ Use with `op run`:
 op run --env-file=gradle.op.env -- ./gradlew publish
 ```
 
-### Method 3: With Scripts
+### Method 3: With Makefile (Convention Workflow)
 
-Use the provided scripts:
+Use the Makefile commands (backed by Gradle convention tasks):
 
 ```bash
 # Publish to Gradle Plugin Portal
@@ -186,6 +186,15 @@ make publish-portal
 
 # Publish to Maven Central
 make publish-central
+
+# Publish to Maven local
+make publish-local
+
+# Full pre-release flow (bump, tag, publish, push)
+make tag-and-publish-pre-release
+
+# Stable release flow
+make tag-and-publish-release VERSION=x.y.z
 ```
 
 ---
@@ -240,11 +249,14 @@ brew install 1password-cli
 op --version
 ```
 
-### Permission Denied
+### Legacy scripts removed
 
-Make sure scripts are executable:
+The old `build-logic/scripts/*.main.*` scripts were removed.
+Use Makefile or `./gradlew release*` tasks instead.
 ```bash
-chmod +x build-logic/scripts/*.main.kts
+make release-doctor
+make publish-portal
+make publish-central
 ```
 
 ---
