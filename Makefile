@@ -3,7 +3,7 @@
 
 .PHONY: help build check test functional integration coverage format docs clean publish-local publish-portal publish-central bump-pre tag-and-publish-pre-release tag-and-publish-release release-doctor
 
-RELEASE_WORKFLOW=node --experimental-strip-types build-logic/scripts/release-workflow.main.ts
+RELEASE_CONVENTION=./gradlew
 
 # Default target
 help:
@@ -82,32 +82,32 @@ docs:
 # Publish
 
 tag-and-publish-pre-release:
-	$(RELEASE_WORKFLOW) tag-and-publish-pre-release
+	$(RELEASE_CONVENTION) releaseTagAndPublishPreRelease
 
 tag-and-publish-release:
 	@if [ -z "$(VERSION)" ]; then \
 		echo "Usage: make $@ VERSION=x.y.z"; \
 		exit 1; \
 	fi
-	$(RELEASE_WORKFLOW) tag-and-publish-release --version "$(VERSION)"
+	$(RELEASE_CONVENTION) releaseTagAndPublishRelease -Prelease.version="$(VERSION)"
 
 # ============================================================================
 # Versioning
 # ============================================================================
 
 bump-pre:
-	$(RELEASE_WORKFLOW) bump-pre
+	$(RELEASE_CONVENTION) releaseBumpPre
 
 # ============================================================================
 
 publish-local:
-	$(RELEASE_WORKFLOW) publish-local
+	$(RELEASE_CONVENTION) releasePublishLocal
 
 publish-portal:
-	$(RELEASE_WORKFLOW) publish-portal
+	$(RELEASE_CONVENTION) releasePublishPortal
 
 publish-central:
-	$(RELEASE_WORKFLOW) publish-central
+	$(RELEASE_CONVENTION) releasePublishCentral
 
 release-doctor:
-	$(RELEASE_WORKFLOW) doctor
+	$(RELEASE_CONVENTION) releaseDoctor
