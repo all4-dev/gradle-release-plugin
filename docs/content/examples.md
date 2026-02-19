@@ -3,7 +3,7 @@
   <tr>
     <td width="200" align="left" style="word-wrap: break-word;"><a href="../content/custom-repositories.md">← Custom Repositories</a></td>
     <td width="400" align="center"><a href="../index.md">📋 Gradle Release Plugin</a></td>
-    <td width="200" align="right" style="word-wrap: break-word;"><a href="../content/COMPARISON.md">Comparison →</a></td>
+    <td width="200" align="right" style="word-wrap: break-word;">→ None</td>
   </tr>
 </table>
 
@@ -31,7 +31,7 @@ include(":my-android-lib")
 ```kotlin
 // build.gradle.kts (root)
 plugins {
-  id("dev.all4.release") version "1.0.0"
+  id("dev.all4.release") version "0.1.0-alpha.6"
 }
 
 releaseConfig {
@@ -101,7 +101,7 @@ include(":core", ":utils")
 ```kotlin
 // build.gradle.kts (root)
 plugins {
-  id("dev.all4.release") version "1.0.0"
+  id("dev.all4.release") version "0.1.0-alpha.6"
 }
 
 releaseConfig {
@@ -183,7 +183,7 @@ include(":shared")
 ```kotlin
 // build.gradle.kts (root)
 plugins {
-  id("dev.all4.release") version "1.0.0"
+  id("dev.all4.release") version "0.1.0-alpha.6"
 }
 
 releaseConfig {
@@ -285,7 +285,7 @@ include(":plugin")
 ```kotlin
 // build.gradle.kts (root)
 plugins {
-  id("dev.all4.release") version "1.0.0"
+  id("dev.all4.release") version "0.1.0-alpha.6"
 }
 
 releaseConfig {
@@ -372,8 +372,9 @@ export SONATYPE_PASSWORD=your-sonatype-password
 **Publish:**
 
 ```bash
-./gradlew publishAllToMavenCentral
-./gradlew publishAllToGitHubPackages
+# Replace "Core" with your libraryGroup name (capitalized)
+./gradlew publishCoreToMavenCentral
+./gradlew publishCoreToGitHubPackages
 ```
 
 ---

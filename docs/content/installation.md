@@ -23,7 +23,7 @@ pluginManagement {
 
 // build.gradle.kts (root project and modules)
 plugins {
-  id("dev.all4.release") version "0.1.0"
+  id("dev.all4.release") version "0.1.0-alpha.6"
 }
 ```
 
@@ -42,7 +42,7 @@ pluginManagement {
 // build.gradle.kts
 buildscript {
   dependencies {
-    classpath("dev.all4.gradle:gradle-publish-plugin:0.1.0")
+    classpath("dev.all4.gradle:release-plugin:0.1.0-alpha.6")
   }
 }
 

@@ -63,4 +63,4 @@ releaseConfig {
 | `username` + `password` | Basic authentication |
 | `authHeaderName` + `authHeaderValue` | Header auth (tokens) |
 | `allowInsecureProtocol` | Allow HTTP |
-| `snapshots` / `releases` | Filter by version type |
+| `snapshots` / `releases` | Configuration flags available in DSL (currently not enforced by routing logic) |

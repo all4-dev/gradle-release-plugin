@@ -9,7 +9,6 @@ A Gradle plugin for streamlined library publishing with built-in support for Mav
 3. [Tasks](content/tasks.md) — Available Gradle tasks
 4. [Custom Repositories](content/custom-repositories.md) — Private Maven repos
 5. [Examples](content/examples.md) — Real-world usage patterns
-6. [Comparison](content/COMPARISON.md) — vs other publishing plugins
 
 ---
 

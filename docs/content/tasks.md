@@ -17,12 +17,23 @@ Tasks registered by this plugin:
 
 | Task | Description |
 |------|-------------|
+| `bumpVersion` | Bump version in `gradle.properties` |
+| `createRelease` | Create git tag and GitHub release |
+| `generateChangelog` | Generate changelog entries for a library group |
 | `importArtifact` | Import external JARs/AARs into local Maven repo |
 | `publishingInfo` | Show current publishing configuration |
 
+## Release Workflow Task Examples
+
+```bash
+./gradlew bumpVersion --bump=patch
+./gradlew createRelease --version=1.2.3
+./gradlew generateChangelog --group=core --since=v1.1.0
+```
+
 ## Per-Group Publishing Tasks
 
-For each `libraryGroup` registered, these tasks are created (where `<Group>` is the capitalized group name):
+For each `libraryGroup` registered, these tasks are created (where `<Group>` is the capitalized group name). A task exists only when the corresponding destination is enabled in `releaseConfig.destinations`:
 
 | Task | Destination |
 |------|-------------|
