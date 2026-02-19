@@ -29,25 +29,108 @@ private data class ArtifactDetails(
   val pluginId: String,
 )
 
+private data class BuildMetadata(
+  val groupId: String,
+  val version: String,
+  val pluginId: String,
+)
+
 private data class CommandResult(
   val status: Int,
   val output: String,
 )
 
+private object ReleaseWorkflowConstants {
+  const val VERSION_PROPERTY = "release.version"
+  const val LEGACY_VERSION_PROPERTY = "VERSION"
+  const val DRY_RUN_PROPERTY = "release.dryRun"
+  const val NO_PUSH_PROPERTY = "release.noPush"
+  const val SKIP_PUBLISH_PROPERTY = "release.skipPublish"
+
+  const val PLUGIN_BUILD_FILE = "plugin/build.gradle.kts"
+  const val PLUGIN_POM_FILE = "plugin/build/publications/pluginMaven/pom-default.xml"
+  const val VERSION_FILE_TARGET = "plugin/build.gradle.kts"
+
+  const val DEFAULT_ARTIFACT_ID = "release-plugin"
+
+  const val GRADLEW = "./gradlew"
+  const val PUBLISH_LOCAL_TASK = ":plugin:publishToMavenLocal"
+  const val PUBLISH_PORTAL_TASK = ":plugin:publishPlugins"
+  const val PUBLISH_CENTRAL_TASK = ":plugin:publishAllPublicationsToMavenCentralRepository"
+
+  const val PLUGIN_PORTAL_BASE_URL = "https://plugins.gradle.org/plugin"
+  const val MAVEN_CENTRAL_BASE_URL = "https://repo1.maven.org/maven2"
+
+  val TRUE_VALUES = setOf("1", "true", "yes", "y", "on")
+  val FALSE_VALUES = setOf("0", "false", "no", "n", "off")
+
+  val VERSION_DECLARATION_REGEX = Regex(
+    pattern = """^version\\s*=\\s*\"([^\"]+)\"\\s*$""",
+    option = RegexOption.MULTILINE,
+  )
+
+  val GROUP_DECLARATION_REGEX = Regex(
+    pattern = """^group\\s*=\\s*\"([^\"]+)\"\\s*$""",
+    option = RegexOption.MULTILINE,
+  )
+
+  val PLUGIN_ID_REGEX = Regex(
+    pattern = "create\\(\\\"release\\\"\\)\\s*\\{.*?id\\s*=\\s*\\\"([^\\\"]+)\\\"",
+    options = setOf(RegexOption.MULTILINE, RegexOption.DOT_MATCHES_ALL),
+  )
+
+  val POM_ARTIFACT_ID_REGEX = Regex("""<artifactId>([^<]+)</artifactId>""")
+  val STABLE_VERSION_REGEX = Regex("""^\\d+\\.\\d+\\.\\d+$""")
+  val ALPHA_VERSION_REGEX = Regex("""^(.*)-alpha\\.(\\d+)$""")
+}
+
+private object SecretMappings {
+  val portal = listOf(
+    SecretMapping(
+      keyName = "GRADLE_PUBLISH_KEY",
+      secretRef = "op://Private/Gradle Plugin Portal/publishing/key",
+    ),
+    SecretMapping(
+      keyName = "GRADLE_PUBLISH_SECRET",
+      secretRef = "op://Private/Gradle Plugin Portal/publishing/secret",
+    ),
+    SecretMapping(
+      keyName = "SIGNING_PASSPHRASE",
+      secretRef = "op://Private/GPG Signing Key/publishing/passphrase",
+    ),
+  )
+
+  val central = listOf(
+    SecretMapping(
+      keyName = "ORG_GRADLE_PROJECT_mavenCentralUsername",
+      secretRef = "op://Private/Sonatype Maven Central/publishing/username",
+    ),
+    SecretMapping(
+      keyName = "ORG_GRADLE_PROJECT_mavenCentralPassword",
+      secretRef = "op://Private/Sonatype Maven Central/publishing/password",
+    ),
+    SecretMapping(
+      keyName = "ORG_GRADLE_PROJECT_signing_gnupg_passphrase",
+      secretRef = "op://Private/GPG Signing Key/publishing/passphrase",
+    ),
+  )
+}
+
 internal fun Project.readReleaseWorkflowOptions(requireVersion: Boolean = false): ReleaseWorkflowOptions {
-  val versionFromProps = providers.gradleProperty("release.version").orNull
-    ?: providers.gradleProperty("VERSION").orNull
+  val versionFromProps = providers.gradleProperty(ReleaseWorkflowConstants.VERSION_PROPERTY).orNull
+    ?: providers.gradleProperty(ReleaseWorkflowConstants.LEGACY_VERSION_PROPERTY).orNull
 
   val options = ReleaseWorkflowOptions(
-    dryRun = parseBooleanProperty("release.dryRun"),
-    noPush = parseBooleanProperty("release.noPush"),
-    skipPublish = parseBooleanProperty("release.skipPublish"),
+    dryRun = parseBooleanProperty(ReleaseWorkflowConstants.DRY_RUN_PROPERTY),
+    noPush = parseBooleanProperty(ReleaseWorkflowConstants.NO_PUSH_PROPERTY),
+    skipPublish = parseBooleanProperty(ReleaseWorkflowConstants.SKIP_PUBLISH_PROPERTY),
     version = versionFromProps,
   )
 
   if (requireVersion && options.version.isNullOrBlank()) {
     throw GradleException(
-      "Missing release version. Use -Prelease.version=x.y.z (or -PVERSION=x.y.z).",
+      "Missing release version. Use -P${ReleaseWorkflowConstants.VERSION_PROPERTY}=x.y.z " +
+        "(or -P${ReleaseWorkflowConstants.LEGACY_VERSION_PROPERTY}=x.y.z).",
     )
   }
 
@@ -57,8 +140,8 @@ internal fun Project.readReleaseWorkflowOptions(requireVersion: Boolean = false)
 private fun Project.parseBooleanProperty(name: String): Boolean {
   val raw = providers.gradleProperty(name).orNull ?: return false
   return when (raw.trim().lowercase()) {
-    "1", "true", "yes", "y", "on" -> true
-    "0", "false", "no", "n", "off" -> false
+    in ReleaseWorkflowConstants.TRUE_VALUES -> true
+    in ReleaseWorkflowConstants.FALSE_VALUES -> false
     else -> throw GradleException(
       "Invalid boolean value for -P$name: '$raw'. Use true/false.",
     )
@@ -69,44 +152,16 @@ internal class UnifiedReleaseWorkflow(
   private val project: Project,
 ) {
   private val rootDir: File = project.rootDir
-  private val pluginBuildFile = rootDir.resolve("plugin/build.gradle.kts")
-  private val pluginPomFile = rootDir.resolve("plugin/build/publications/pluginMaven/pom-default.xml")
+  private val pluginBuildFile = rootDir.resolve(ReleaseWorkflowConstants.PLUGIN_BUILD_FILE)
+  private val pluginPomFile = rootDir.resolve(ReleaseWorkflowConstants.PLUGIN_POM_FILE)
 
-  private val portalSecretMappings = listOf(
-    SecretMapping(
-      "GRADLE_PUBLISH_KEY",
-      "op://Private/Gradle Plugin Portal/publishing/key",
-    ),
-    SecretMapping(
-      "GRADLE_PUBLISH_SECRET",
-      "op://Private/Gradle Plugin Portal/publishing/secret",
-    ),
-    SecretMapping(
-      "SIGNING_PASSPHRASE",
-      "op://Private/GPG Signing Key/publishing/passphrase",
-    ),
-  )
-
-  private val centralSecretMappings = listOf(
-    SecretMapping(
-      "ORG_GRADLE_PROJECT_mavenCentralUsername",
-      "op://Private/Sonatype Maven Central/publishing/username",
-    ),
-    SecretMapping(
-      "ORG_GRADLE_PROJECT_mavenCentralPassword",
-      "op://Private/Sonatype Maven Central/publishing/password",
-    ),
-    SecretMapping(
-      "ORG_GRADLE_PROJECT_signing_gnupg_passphrase",
-      "op://Private/GPG Signing Key/publishing/passphrase",
-    ),
-  )
+  private var metadataCache: BuildMetadata? = null
 
   fun doctor() {
     ensurePluginBuildFile()
     ensureOpInstalled()
-    validateSecretAccess(portalSecretMappings, "portal")
-    validateSecretAccess(centralSecretMappings, "central")
+    validateSecretAccess(SecretMappings.portal, "portal")
+    validateSecretAccess(SecretMappings.central, "central")
     ok("Release doctor checks passed")
   }
 
@@ -114,16 +169,11 @@ internal class UnifiedReleaseWorkflow(
     ensurePluginBuildFile()
     ensureCleanGitTree()
 
-    val current = getCurrentVersion()
+    val current = currentMetadata().version
     val next = nextPreReleaseVersion(current)
     info("Version bump: $current -> $next")
 
-    if (options.dryRun) {
-      info("[dry-run] update ${pluginBuildFile.absolutePath}")
-    } else {
-      setVersion(next)
-    }
-
+    updateVersion(next, options.dryRun)
     commitVersion(next, options.dryRun)
   }
 
@@ -131,10 +181,10 @@ internal class UnifiedReleaseWorkflow(
     ensurePluginBuildFile()
 
     if (options.dryRun) {
-      info("[dry-run] ./gradlew :plugin:publishToMavenLocal")
+      info("[dry-run] ${ReleaseWorkflowConstants.GRADLEW} ${ReleaseWorkflowConstants.PUBLISH_LOCAL_TASK}")
     } else {
       runCommandOrFail(
-        command = listOf("./gradlew", ":plugin:publishToMavenLocal"),
+        command = gradlew(ReleaseWorkflowConstants.PUBLISH_LOCAL_TASK),
         label = "Maven local publish",
         inheritIO = true,
       )
@@ -151,34 +201,119 @@ internal class UnifiedReleaseWorkflow(
     publishCentral(options, printReport = true)
   }
 
+  fun tagAndPublishPreRelease(options: ReleaseWorkflowOptions) {
+    runTagAndPublishFlow(
+      options = options,
+      resolveTargetVersion = { current -> nextPreReleaseVersion(current) },
+    )
+  }
+
+  fun tagAndPublishRelease(options: ReleaseWorkflowOptions) {
+    val targetVersion = options.version?.trim().orEmpty()
+    if (targetVersion.isEmpty()) {
+      fail("Missing release version. Use -P${ReleaseWorkflowConstants.VERSION_PROPERTY}=x.y.z.")
+    }
+    validateStableVersion(targetVersion)
+
+    runTagAndPublishFlow(
+      options = options,
+      resolveTargetVersion = { _ -> targetVersion },
+      validateTargetVersion = { current, target ->
+        if (current == target) {
+          fail("Version is already $target. Provide a different version.")
+        }
+      },
+    )
+  }
+
+  private fun runTagAndPublishFlow(
+    options: ReleaseWorkflowOptions,
+    resolveTargetVersion: (currentVersion: String) -> String,
+    validateTargetVersion: (currentVersion: String, targetVersion: String) -> Unit = { _, _ -> },
+  ) {
+    ensurePluginBuildFile()
+    ensureCleanGitTree()
+    runDoctorIfNeeded(options)
+
+    val currentVersion = currentMetadata().version
+    val targetVersion = resolveTargetVersion(currentVersion)
+    validateTargetVersion(currentVersion, targetVersion)
+
+    info("Version bump: $currentVersion -> $targetVersion")
+    updateVersion(targetVersion, options.dryRun)
+    commitAndTag(targetVersion, options.dryRun)
+
+    val publishedSides = publishEnabledDestinations(options)
+
+    if (!options.noPush) {
+      pushRelease(targetVersion, options.dryRun)
+    }
+
+    if (publishedSides.isNotEmpty()) {
+      printPublishMiniReport(publishedSides)
+    }
+  }
+
+  private fun runDoctorIfNeeded(options: ReleaseWorkflowOptions) {
+    if (options.skipPublish) {
+      return
+    }
+    if (options.dryRun) {
+      info("[dry-run] skipping doctor checks (no secret access required)")
+      return
+    }
+    doctor()
+  }
+
+  private fun publishEnabledDestinations(options: ReleaseWorkflowOptions): List<PublishSide> {
+    if (options.skipPublish) {
+      return emptyList()
+    }
+
+    val publishedSides = mutableListOf<PublishSide>()
+
+    info("Publishing to Gradle Plugin Portal...")
+    publishPortal(options, printReport = false)
+    publishedSides += PublishSide.PORTAL
+
+    info("Publishing to Maven Central...")
+    publishCentral(options, printReport = false)
+    publishedSides += PublishSide.CENTRAL
+
+    return publishedSides
+  }
+
   private fun publishPortal(options: ReleaseWorkflowOptions, printReport: Boolean) {
     ensurePluginBuildFile()
-    ensureOpInstalled()
-
-    val key = readSecret(portalSecretMappings.requiredValue("GRADLE_PUBLISH_KEY"))
-    val secret = readSecret(portalSecretMappings.requiredValue("GRADLE_PUBLISH_SECRET"))
-    val passphrase = readSecret(portalSecretMappings.requiredValue("SIGNING_PASSPHRASE"))
 
     if (options.dryRun) {
       info(
-        "[dry-run] ./gradlew :plugin:publishPlugins " +
+        "[dry-run] ${ReleaseWorkflowConstants.GRADLEW} ${ReleaseWorkflowConstants.PUBLISH_PORTAL_TASK} " +
           "-Pgradle.publish.key=*** " +
           "-Pgradle.publish.secret=*** " +
           "-Psigning.gnupg.passphrase=***",
       )
-    } else {
-      runCommandOrFail(
-        command = listOf(
-          "./gradlew",
-          ":plugin:publishPlugins",
-          "-Pgradle.publish.key=$key",
-          "-Pgradle.publish.secret=$secret",
-          "-Psigning.gnupg.passphrase=$passphrase",
-        ),
-        label = "Gradle Plugin Portal publish",
-        inheritIO = true,
-      )
+      if (printReport) {
+        printPublishMiniReport(listOf(PublishSide.PORTAL))
+      }
+      return
     }
+
+    ensureOpInstalled()
+    val key = readSecret(SecretMappings.portal.requiredValue("GRADLE_PUBLISH_KEY"))
+    val secret = readSecret(SecretMappings.portal.requiredValue("GRADLE_PUBLISH_SECRET"))
+    val passphrase = readSecret(SecretMappings.portal.requiredValue("SIGNING_PASSPHRASE"))
+
+    runCommandOrFail(
+      command = gradlew(
+        ReleaseWorkflowConstants.PUBLISH_PORTAL_TASK,
+        "-Pgradle.publish.key=$key",
+        "-Pgradle.publish.secret=$secret",
+        "-Psigning.gnupg.passphrase=$passphrase",
+      ),
+      label = "Gradle Plugin Portal publish",
+      inheritIO = true,
+    )
 
     if (printReport) {
       printPublishMiniReport(listOf(PublishSide.PORTAL))
@@ -187,124 +322,41 @@ internal class UnifiedReleaseWorkflow(
 
   private fun publishCentral(options: ReleaseWorkflowOptions, printReport: Boolean) {
     ensurePluginBuildFile()
-    ensureOpInstalled()
-
-    val username = readSecret(
-      centralSecretMappings.requiredValue("ORG_GRADLE_PROJECT_mavenCentralUsername"),
-    )
-    val password = readSecret(
-      centralSecretMappings.requiredValue("ORG_GRADLE_PROJECT_mavenCentralPassword"),
-    )
-    val passphrase = readSecret(
-      centralSecretMappings.requiredValue("ORG_GRADLE_PROJECT_signing_gnupg_passphrase"),
-    )
 
     if (options.dryRun) {
       info(
-        "[dry-run] ./gradlew :plugin:publishAllPublicationsToMavenCentralRepository " +
+        "[dry-run] ${ReleaseWorkflowConstants.GRADLEW} ${ReleaseWorkflowConstants.PUBLISH_CENTRAL_TASK} " +
           "--no-configuration-cache -Psigning.gnupg.passphrase=***",
       )
-    } else {
-      runCommandOrFail(
-        command = listOf(
-          "./gradlew",
-          ":plugin:publishAllPublicationsToMavenCentralRepository",
-          "--no-configuration-cache",
-          "-Psigning.gnupg.passphrase=$passphrase",
-        ),
-        label = "Maven Central publish",
-        inheritIO = true,
-        extraEnv = mapOf(
-          "ORG_GRADLE_PROJECT_mavenCentralUsername" to username,
-          "ORG_GRADLE_PROJECT_mavenCentralPassword" to password,
-        ),
-      )
+      if (printReport) {
+        printPublishMiniReport(listOf(PublishSide.CENTRAL))
+      }
+      return
     }
+
+    ensureOpInstalled()
+    val username = readSecret(SecretMappings.central.requiredValue("ORG_GRADLE_PROJECT_mavenCentralUsername"))
+    val password = readSecret(SecretMappings.central.requiredValue("ORG_GRADLE_PROJECT_mavenCentralPassword"))
+    val passphrase = readSecret(
+      SecretMappings.central.requiredValue("ORG_GRADLE_PROJECT_signing_gnupg_passphrase"),
+    )
+
+    runCommandOrFail(
+      command = gradlew(
+        ReleaseWorkflowConstants.PUBLISH_CENTRAL_TASK,
+        "--no-configuration-cache",
+        "-Psigning.gnupg.passphrase=$passphrase",
+      ),
+      label = "Maven Central publish",
+      inheritIO = true,
+      extraEnv = mapOf(
+        "ORG_GRADLE_PROJECT_mavenCentralUsername" to username,
+        "ORG_GRADLE_PROJECT_mavenCentralPassword" to password,
+      ),
+    )
 
     if (printReport) {
       printPublishMiniReport(listOf(PublishSide.CENTRAL))
-    }
-  }
-
-  fun tagAndPublishPreRelease(options: ReleaseWorkflowOptions) {
-    ensurePluginBuildFile()
-    ensureCleanGitTree()
-    doctor()
-
-    val current = getCurrentVersion()
-    val next = nextPreReleaseVersion(current)
-    info("Version bump: $current -> $next")
-
-    if (options.dryRun) {
-      info("[dry-run] update ${pluginBuildFile.absolutePath}")
-    } else {
-      setVersion(next)
-    }
-
-    commitAndTag(next, options.dryRun)
-
-    val publishedSides = mutableListOf<PublishSide>()
-    if (!options.skipPublish) {
-      info("Publishing to Gradle Plugin Portal...")
-      publishPortal(options.copy(skipPublish = true), printReport = false)
-      publishedSides += PublishSide.PORTAL
-
-      info("Publishing to Maven Central...")
-      publishCentral(options.copy(skipPublish = true), printReport = false)
-      publishedSides += PublishSide.CENTRAL
-    }
-
-    if (!options.noPush) {
-      pushRelease(next, options.dryRun)
-    }
-
-    if (publishedSides.isNotEmpty()) {
-      printPublishMiniReport(publishedSides)
-    }
-  }
-
-  fun tagAndPublishRelease(options: ReleaseWorkflowOptions) {
-    ensurePluginBuildFile()
-    ensureCleanGitTree()
-    doctor()
-
-    val targetVersion = options.version?.trim().orEmpty()
-    if (targetVersion.isEmpty()) {
-      fail("Missing release version. Use -Prelease.version=x.y.z.")
-    }
-    validateStableVersion(targetVersion)
-
-    val current = getCurrentVersion()
-    if (current == targetVersion) {
-      fail("Version is already $targetVersion. Provide a different version.")
-    }
-
-    info("Version bump: $current -> $targetVersion")
-    if (options.dryRun) {
-      info("[dry-run] update ${pluginBuildFile.absolutePath}")
-    } else {
-      setVersion(targetVersion)
-    }
-
-    commitAndTag(targetVersion, options.dryRun)
-
-    val publishedSides = mutableListOf<PublishSide>()
-    if (!options.skipPublish) {
-      info("Publishing to Gradle Plugin Portal...")
-      publishPortal(options.copy(skipPublish = true), printReport = false)
-      publishedSides += PublishSide.PORTAL
-
-      info("Publishing to Maven Central...")
-      publishCentral(options.copy(skipPublish = true), printReport = false)
-      publishedSides += PublishSide.CENTRAL
-    }
-
-    if (!options.noPush) {
-      pushRelease(targetVersion, options.dryRun)
-    }
-
-    if (publishedSides.isNotEmpty()) {
-      printPublishMiniReport(publishedSides)
     }
   }
 
@@ -360,75 +412,83 @@ internal class UnifiedReleaseWorkflow(
     ok("Git working tree is clean")
   }
 
-  private fun getCurrentVersion(): String {
+  private fun currentMetadata(): BuildMetadata {
+    metadataCache?.let { return it }
+
     val content = pluginBuildFile.readText()
-    val match = Regex("""^version\s*=\s*"([^"]+)"\s*$""", RegexOption.MULTILINE)
-      .find(content)
-      ?.groupValues
-      ?.getOrNull(1)
-    return match ?: fail(
-      "Unable to read plugin version.",
-      "Expected line like version = \"x.y.z\" in ${pluginBuildFile.absolutePath}",
+
+    val metadata = BuildMetadata(
+      groupId = content.requiredMatch(
+        regex = ReleaseWorkflowConstants.GROUP_DECLARATION_REGEX,
+        error = "Unable to read plugin group.",
+        hint = "Expected line like group = \"x.y.z\" in ${pluginBuildFile.absolutePath}",
+      ),
+      version = content.requiredMatch(
+        regex = ReleaseWorkflowConstants.VERSION_DECLARATION_REGEX,
+        error = "Unable to read plugin version.",
+        hint = "Expected line like version = \"x.y.z\" in ${pluginBuildFile.absolutePath}",
+      ),
+      pluginId = content.requiredMatch(
+        regex = ReleaseWorkflowConstants.PLUGIN_ID_REGEX,
+        error = "Unable to read Gradle plugin ID.",
+        hint = "Expected id = \"...\" in gradlePlugin.plugins block inside ${pluginBuildFile.absolutePath}",
+      ),
+    )
+
+    metadataCache = metadata
+    return metadata
+  }
+
+  private fun currentArtifactDetails(): ArtifactDetails {
+    val metadata = currentMetadata()
+    return ArtifactDetails(
+      groupId = metadata.groupId,
+      artifactId = readArtifactIdOrFallback(),
+      version = metadata.version,
+      pluginId = metadata.pluginId,
     )
   }
 
-  private fun getCurrentGroupId(): String {
-    val content = pluginBuildFile.readText()
-    val match = Regex("""^group\s*=\s*"([^"]+)"\s*$""", RegexOption.MULTILINE)
-      .find(content)
-      ?.groupValues
-      ?.getOrNull(1)
-    return match ?: fail(
-      "Unable to read plugin group.",
-      "Expected line like group = \"x.y.z\" in ${pluginBuildFile.absolutePath}",
-    )
-  }
-
-  private fun getPluginId(): String {
-    val content = pluginBuildFile.readText()
-    val match = Regex(
-      """create\("release"\)\s*\{.*?id\s*=\s*"([^"]+)"""",
-      setOf(RegexOption.MULTILINE, RegexOption.DOT_MATCHES_ALL),
-    )
-      .find(content)
-      ?.groupValues
-      ?.getOrNull(1)
-
-    return match ?: fail(
-      "Unable to read Gradle plugin ID.",
-      "Expected id = \"...\" in gradlePlugin.plugins block inside ${pluginBuildFile.absolutePath}",
-    )
-  }
-
-  private fun getArtifactIdOrFallback(): String {
+  private fun readArtifactIdOrFallback(): String {
     if (!pluginPomFile.exists()) {
-      return "release-plugin"
+      return ReleaseWorkflowConstants.DEFAULT_ARTIFACT_ID
     }
-    val pom = pluginPomFile.readText()
-    return Regex("""<artifactId>([^<]+)</artifactId>""")
-      .find(pom)
-      ?.groupValues
-      ?.getOrNull(1)
+
+    val pomContent = pluginPomFile.readText()
+    return pomContent.requiredMatchOrNull(ReleaseWorkflowConstants.POM_ARTIFACT_ID_REGEX)
       ?.trim()
       .orEmpty()
-      .ifBlank { "release-plugin" }
+      .ifBlank { ReleaseWorkflowConstants.DEFAULT_ARTIFACT_ID }
+  }
+
+  private fun updateVersion(targetVersion: String, dryRun: Boolean) {
+    if (dryRun) {
+      info("[dry-run] update ${pluginBuildFile.absolutePath}")
+      return
+    }
+    setVersion(targetVersion)
   }
 
   private fun setVersion(newVersion: String) {
     val content = pluginBuildFile.readText()
-    val regex = Regex("""^version\s*=\s*"([^"]+)"\s*$""", RegexOption.MULTILINE)
-    val updated = regex.replace(content, "version = \"$newVersion\"")
+    val updated = ReleaseWorkflowConstants.VERSION_DECLARATION_REGEX.replace(
+      content,
+      "version = \"$newVersion\"",
+    )
+
     if (updated == content) {
       fail(
         "Version update failed.",
         "Unable to replace version declaration in ${pluginBuildFile.absolutePath}",
       )
     }
+
     pluginBuildFile.writeText(updated)
+    metadataCache = null
   }
 
   private fun nextPreReleaseVersion(current: String): String {
-    val alphaMatch = Regex("""^(.*)-alpha\.(\d+)$""").find(current)
+    val alphaMatch = ReleaseWorkflowConstants.ALPHA_VERSION_REGEX.find(current)
     if (alphaMatch != null) {
       val base = alphaMatch.groupValues[1]
       val number = alphaMatch.groupValues[2].toInt()
@@ -438,48 +498,51 @@ internal class UnifiedReleaseWorkflow(
   }
 
   private fun validateStableVersion(version: String) {
-    if (!Regex("""^\d+\.\d+\.\d+$""").matches(version)) {
+    if (!ReleaseWorkflowConstants.STABLE_VERSION_REGEX.matches(version)) {
       fail("Invalid release version: $version", "Use semantic version format without suffix: x.y.z")
     }
   }
 
   private fun commitVersion(version: String, dryRun: Boolean) {
-    if (dryRun) {
-      info("[dry-run] git add plugin/build.gradle.kts")
-      info("[dry-run] git commit -m \"chore: bump version to $version\"")
-      return
+    commitVersionChange(version = version, includeTag = false, dryRun = dryRun)
+    if (!dryRun) {
+      ok("Created commit for version $version")
     }
-    runCommandOrFail(
-      command = listOf("git", "add", "plugin/build.gradle.kts"),
-      label = "git add",
-    )
-    runCommandOrFail(
-      command = listOf("git", "commit", "-m", "chore: bump version to $version"),
-      label = "git commit",
-    )
-    ok("Created commit for version $version")
   }
 
   private fun commitAndTag(version: String, dryRun: Boolean) {
+    commitVersionChange(version = version, includeTag = true, dryRun = dryRun)
+    if (!dryRun) {
+      ok("Created commit + tag v$version")
+    }
+  }
+
+  private fun commitVersionChange(version: String, includeTag: Boolean, dryRun: Boolean) {
     if (dryRun) {
-      info("[dry-run] git add plugin/build.gradle.kts")
+      info("[dry-run] git add ${ReleaseWorkflowConstants.VERSION_FILE_TARGET}")
       info("[dry-run] git commit -m \"chore: bump version to $version\"")
-      info("[dry-run] git tag -a v$version -m \"Release $version\"")
+      if (includeTag) {
+        info("[dry-run] git tag -a v$version -m \"Release $version\"")
+      }
       return
     }
+
     runCommandOrFail(
-      command = listOf("git", "add", "plugin/build.gradle.kts"),
+      command = listOf("git", "add", ReleaseWorkflowConstants.VERSION_FILE_TARGET),
       label = "git add",
     )
+
     runCommandOrFail(
       command = listOf("git", "commit", "-m", "chore: bump version to $version"),
       label = "git commit",
     )
-    runCommandOrFail(
-      command = listOf("git", "tag", "-a", "v$version", "-m", "Release $version"),
-      label = "git tag",
-    )
-    ok("Created commit + tag v$version")
+
+    if (includeTag) {
+      runCommandOrFail(
+        command = listOf("git", "tag", "-a", "v$version", "-m", "Release $version"),
+        label = "git tag",
+      )
+    }
   }
 
   private fun pushRelease(version: String, dryRun: Boolean) {
@@ -488,14 +551,17 @@ internal class UnifiedReleaseWorkflow(
       info("[dry-run] git push origin v$version")
       return
     }
+
     runCommandOrFail(
       command = listOf("git", "push", "origin", "HEAD"),
       label = "git push HEAD",
     )
+
     runCommandOrFail(
       command = listOf("git", "push", "origin", "v$version"),
       label = "git push tag",
     )
+
     ok("Pushed branch + tag v$version")
   }
 
@@ -510,6 +576,7 @@ internal class UnifiedReleaseWorkflow(
       inheritIO = inheritIO,
       extraEnv = extraEnv,
     )
+
     if (result.status != 0) {
       fail("$label failed.", result.output.ifBlank { "No additional output." })
     }
@@ -550,12 +617,7 @@ internal class UnifiedReleaseWorkflow(
       return
     }
 
-    val artifact = ArtifactDetails(
-      groupId = getCurrentGroupId(),
-      artifactId = getArtifactIdOrFallback(),
-      version = getCurrentVersion(),
-      pluginId = getPluginId(),
-    )
+    val artifact = currentArtifactDetails()
 
     project.logger.lifecycle("")
     project.logger.lifecycle("Publish mini-report")
@@ -566,18 +628,21 @@ internal class UnifiedReleaseWorkflow(
     uniqueSides.forEach { side ->
       when (side) {
         PublishSide.LOCAL -> {
-          val home = System.getenv("HOME") ?: "~"
-          val repoPath = artifact.groupId.replace(".", "/")
-          val fullPath = "$home/.m2/repository/$repoPath/${artifact.artifactId}/${artifact.version}"
-          project.logger.lifecycle("PATH local: $fullPath")
+          val home = System.getProperty("user.home") ?: "~"
+          val repoPath = artifact.groupId.toRepositoryPath()
+          project.logger.lifecycle(
+            "PATH local: $home/.m2/repository/$repoPath/${artifact.artifactId}/${artifact.version}",
+          )
         }
         PublishSide.PORTAL -> {
-          project.logger.lifecycle("URL portal: https://plugins.gradle.org/plugin/${artifact.pluginId}")
+          project.logger.lifecycle(
+            "URL portal: ${ReleaseWorkflowConstants.PLUGIN_PORTAL_BASE_URL}/${artifact.pluginId}",
+          )
         }
         PublishSide.CENTRAL -> {
-          val repoPath = artifact.groupId.replace(".", "/")
+          val repoPath = artifact.groupId.toRepositoryPath()
           project.logger.lifecycle(
-            "URL central: https://repo1.maven.org/maven2/$repoPath/${artifact.artifactId}/${artifact.version}/",
+            "URL central: ${ReleaseWorkflowConstants.MAVEN_CENTRAL_BASE_URL}/$repoPath/${artifact.artifactId}/${artifact.version}/",
           )
         }
       }
@@ -604,6 +669,9 @@ internal class UnifiedReleaseWorkflow(
     )
   }
 
+  private fun gradlew(vararg args: String): List<String> =
+    listOf(ReleaseWorkflowConstants.GRADLEW) + args
+
   private fun info(message: String) = project.logger.lifecycle("INFO: $message")
 
   private fun ok(message: String) = project.logger.lifecycle("OK: $message")
@@ -621,3 +689,11 @@ internal class UnifiedReleaseWorkflow(
 private fun List<SecretMapping>.requiredValue(key: String): String =
   firstOrNull { it.keyName == key }?.secretRef
     ?: throw GradleException("Missing secret mapping for '$key'.")
+
+private fun String.requiredMatch(regex: Regex, error: String, hint: String): String =
+  requiredMatchOrNull(regex) ?: throw GradleException("$error\n\nSolution:\n$hint")
+
+private fun String.requiredMatchOrNull(regex: Regex): String? =
+  regex.find(this)?.groupValues?.getOrNull(1)
+
+private fun String.toRepositoryPath(): String = replace(".", "/")
