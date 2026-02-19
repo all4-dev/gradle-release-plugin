@@ -75,7 +75,7 @@ op run -- ./gradlew publish
 Format: `op://Vault/Item/Section/Field`
 
 Example:
-```
+```text
 op://Private/Gradle Publishing Credentials/Maven Central/username
      │        │                             │              └─ Field name
      │        │                             └──────────────── Section name
@@ -98,22 +98,22 @@ See [PATHS.md](PATHS.md) for complete details.
 All of these are valid - choose what works for you:
 
 ### Professional Style
-```
+```text
 op://Production/Publishing Credentials/Maven Central/username
 ```
 
 ### Simple Style
-```
+```text
 op://Work/gradle/maven/user
 ```
 
 ### Detailed Style
-```
+```text
 op://Private/MyProject - Publishing Credentials/Sonatype/username
 ```
 
 ### Flat Style (no sections)
-```
+```text
 op://Private/Maven Credentials/username
 ```
 

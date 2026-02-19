@@ -97,7 +97,7 @@ op item create \
 ```
 
 **References:**
-```
+```text
 op://Private/Sonatype Maven Central/publishing/username
 op://Private/Sonatype Maven Central/publishing/password
 ```
@@ -116,7 +116,7 @@ op item create \
 > **How to get credentials**: Visit [plugins.gradle.org](https://plugins.gradle.org) → Sign in → API Keys
 
 **References:**
-```
+```text
 op://Private/Gradle Plugin Portal/publishing/key
 op://Private/Gradle Plugin Portal/publishing/secret
 ```
@@ -135,7 +135,7 @@ op item create \
 > **How to find your GPG key ID**: `gpg --list-secret-keys --keyid-format=long`
 
 **References:**
-```
+```text
 op://Private/GPG Signing Key/publishing/keyName
 op://Private/GPG Signing Key/publishing/passphrase
 ```

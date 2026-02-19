@@ -8,7 +8,7 @@ This guide explains how 1Password constructs secret references (paths) and how y
 
 A 1Password secret reference follows this format:
 
-```
+```text
 op://Vault/Item/Section/Field
     │    │     │      │      └─ Field name
     │    │     │      └──────── Section name (optional)
@@ -55,7 +55,7 @@ op://Private/My API Keys/github_token
 ### Example 1: Professional Style
 
 **1Password structure:**
-```
+```text
 Vault: "Production"
   Item: "Publishing Credentials"
     Section: "Maven Central"
@@ -79,7 +79,7 @@ op://Production/Publishing Credentials/GPG/passphrase
 ### Example 2: Simple Style
 
 **1Password structure:**
-```
+```text
 Vault: "Work"
   Item: "gradle"
     Section: "maven"
@@ -103,7 +103,7 @@ op://Work/gradle/gpg/phrase
 ### Example 3: Detailed Style (Recommended)
 
 **1Password structure:**
-```
+```text
 Vault: "Private"
   Item: "Gradle Release Plugin - Publishing"
     Section: "Sonatype Maven Central"
@@ -132,7 +132,7 @@ op://Private/Gradle Release Plugin - Publishing/GPG Signing Key/passphrase
 ### Example 4: Without Sections (Flat Structure)
 
 **1Password structure:**
-```
+```text
 Vault: "Private"
   Item: "Maven Credentials"
     Field: "username"
@@ -276,7 +276,7 @@ op read "op://Private/Item/field"  # if no section
 ### Scenario: You already have an item
 
 **What you have in 1Password:**
-```
+```text
 Item: "My Secrets"
   Field: "sonatype_user"
   Field: "sonatype_pass"
@@ -293,7 +293,7 @@ SONATYPE_PASSWORD=op://Private/My Secrets/sonatype_pass
 ### Scenario: Adding sections to existing item
 
 **Before:**
-```
+```text
 Item: "Publishing"
   Field: "maven_user"
   Field: "maven_pass"
@@ -302,7 +302,7 @@ Item: "Publishing"
 ```
 
 **After adding sections:**
-```
+```text
 Item: "Publishing"
   Section: "maven"
     Field: "user"
