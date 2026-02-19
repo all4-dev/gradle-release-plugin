@@ -12,8 +12,7 @@ plugins {
 
 group = "dev.all4.gradle"
 
-version = "0.1.0-alpha.6"
-
+version = "0.1.0-alpha.7"
 // Kover configurations from convention plugin
 val koverCli: Configuration by configurations
 val koverAgent: Configuration by configurations
