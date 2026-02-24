@@ -586,22 +586,22 @@ public class ReleasePlugin : Plugin<Project> {
                             ?: System.getenv("SONATYPE_PASSWORD"))
                             ?.let { OnePasswordSupport.resolve(it, this@configureRepositories) }
 
-                    if (sonatypeUser != null && sonatypePassword != null) {
-                        maven {
-                            name = "MavenCentral"
-                            url =
-                                uri(
-                                    mavenCentralConfig.stagingUrl.orNull
-                                        ?: "https://s01.oss.sonatype.org/service/local/staging/deploy/maven2/"
-                                )
-                            credentials {
-                                username = sonatypeUser
-                                password = sonatypePassword
-                            }
+                    maven {
+                        name = "MavenCentral"
+                        url =
+                            uri(
+                                mavenCentralConfig.stagingUrl.orNull
+                                    ?: "https://s01.oss.sonatype.org/service/local/staging/deploy/maven2/"
+                            )
+                        credentials {
+                            username = sonatypeUser ?: ""
+                            password = sonatypePassword ?: ""
                         }
-                    } else {
+                    }
+
+                    if (sonatypeUser == null || sonatypePassword == null) {
                         logger.warn(
-                            "Maven Central enabled but SONATYPE_USERNAME/SONATYPE_PASSWORD not set"
+                            "Maven Central enabled but SONATYPE_USERNAME/SONATYPE_PASSWORD not set. Publishing to Maven Central will fail."
                         )
                     }
                 }
