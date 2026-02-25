@@ -1,8 +1,16 @@
+import java.io.FileOutputStream
+import java.net.HttpURLConnection
+import java.net.URL
+import java.util.Base64
+import java.util.UUID
+import java.util.zip.ZipEntry
+import java.util.zip.ZipOutputStream
+
 plugins {
     `kotlin-dsl`
+    `maven-publish`
     signing
     alias(libs.plugins.gradle.plugin.publish)
-    alias(libs.plugins.maven.publish)
     id("dev.all4.gradle.kotlin-config")
     id("dev.all4.gradle.quality")
     id("dev.all4.gradle.test-config")
@@ -71,11 +79,22 @@ gradlePlugin {
     }
 }
 
+val sonatypeUser: String? = System.getenv("SONATYPE_USERNAME")
+    ?: findProperty("mavenCentralUsername") as? String
+val sonatypePassword: String? = System.getenv("SONATYPE_PASSWORD")
+    ?: findProperty("mavenCentralPassword") as? String
+
+val centralStagingDir = layout.buildDirectory.dir("central-staging")
+
 publishing {
     repositories {
         maven {
             name = "maven-standalone"
             url = uri(System.getenv("MAVEN_STANDALONE_PATH") ?: error("MAVEN_STANDALONE_PATH is not set"))
+        }
+        maven {
+            name = "MavenCentral"
+            url = centralStagingDir.get().asFile.toURI()
         }
     }
 
@@ -108,7 +127,6 @@ publishing {
             }
         }
     }
-
 }
 
 signing {
@@ -118,36 +136,70 @@ signing {
     if (gpgPassphrase != null) {
         project.ext.set("signing.gnupg.passphrase", gpgPassphrase)
     }
+    sign(publishing.publications)
 }
 
-mavenPublishing {
-    publishToMavenCentral(com.vanniktech.maven.publish.SonatypeHost.CENTRAL_PORTAL)
+// Native Central Portal publishing — stages locally, then zips and uploads bundle
+val publishToPortal by tasks.registering {
+    group = "publishing"
+    description = "Uploads staged artifacts to Sonatype Central Portal"
+    dependsOn(tasks.named("publishAllPublicationsToMavenCentralRepository"))
 
-    pom {
-        name.set("Gradle Release Plugin")
-        description.set(
-            "A complete release toolkit: version bumping, changelog generation, " +
-            "git tagging, GitHub releases, and multi-destination publishing."
-        )
-        url.set("https://github.com/all4-dev/gradle-release-plugin")
-        inceptionYear.set("2025")
-        licenses {
-            license {
-                name.set("Apache-2.0")
-                url.set("https://www.apache.org/licenses/LICENSE-2.0")
+    doLast {
+        val stagingDir = centralStagingDir.get().asFile
+        if (!stagingDir.exists() || stagingDir.listFiles().isNullOrEmpty()) {
+            logger.lifecycle("Central Portal: staging directory is empty, nothing to upload.")
+            return@doLast
+        }
+
+        val user = sonatypeUser ?: error("SONATYPE_USERNAME / mavenCentralUsername not set")
+        val pass = sonatypePassword ?: error("SONATYPE_PASSWORD / mavenCentralPassword not set")
+
+        // Zip staging directory
+        val zipFile = File(stagingDir.parentFile, "central-staging-${UUID.randomUUID()}.zip")
+        ZipOutputStream(FileOutputStream(zipFile)).use { zos ->
+            stagingDir.walkTopDown().forEach { file ->
+                if (file.isDirectory) return@forEach
+                if (file.name.contains("maven-metadata")) return@forEach
+                val entryPath = file.toRelativeString(stagingDir)
+                zos.putNextEntry(ZipEntry(entryPath))
+                file.inputStream().use { it.copyTo(zos) }
+                zos.closeEntry()
             }
         }
-        developers {
-            developer {
-                id.set("liviolopez")
-                name.set("Livio Lopez")
-                email.set("dev@all4.dev")
-            }
+        logger.lifecycle("📦 Central Portal: created bundle ${zipFile.name} (${zipFile.length() / 1024} KB)")
+
+        // Upload to Central Portal
+        val baseUrl = "https://central.sonatype.com/api/v1/"
+        val deploymentName = "${project.group}-${UUID.randomUUID()}"
+        val boundary = "----Boundary${System.currentTimeMillis()}"
+        val token = Base64.getEncoder().encodeToString("$user:$pass".toByteArray())
+
+        val url = URL("${baseUrl}publisher/upload?name=$deploymentName&publishingType=AUTOMATIC")
+        val conn = url.openConnection() as HttpURLConnection
+        conn.requestMethod = "POST"
+        conn.doOutput = true
+        conn.setRequestProperty("Authorization", "UserToken $token")
+        conn.setRequestProperty("Content-Type", "multipart/form-data; boundary=$boundary")
+
+        conn.outputStream.use { os ->
+            val header = "--$boundary\r\nContent-Disposition: form-data; name=\"bundle\"; filename=\"${zipFile.name}\"\r\nContent-Type: application/octet-stream\r\n\r\n"
+            os.write(header.toByteArray())
+            zipFile.inputStream().use { it.copyTo(os) }
+            os.write("\r\n--$boundary--\r\n".toByteArray())
         }
-        scm {
-            url.set("https://github.com/all4-dev/gradle-release-plugin")
-            connection.set("scm:git:git://github.com/all4-dev/gradle-release-plugin.git")
-            developerConnection.set("scm:git:ssh://github.com/all4-dev/gradle-release-plugin.git")
+
+        val responseCode = conn.responseCode
+        val responseBody = (if (responseCode in 200..299) conn.inputStream else conn.errorStream)
+            ?.bufferedReader()?.readText() ?: ""
+
+        zipFile.delete()
+        stagingDir.deleteRecursively()
+
+        if (responseCode in 200..299) {
+            logger.lifecycle("✅ Central Portal: uploaded successfully. Deployment ID: $responseBody")
+        } else {
+            error("❌ Central Portal: upload failed (HTTP $responseCode): $responseBody")
         }
     }
 }
