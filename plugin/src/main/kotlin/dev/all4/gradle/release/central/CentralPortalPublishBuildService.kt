@@ -104,6 +104,72 @@ internal abstract class CentralPortalPublishBuildService :
 
     companion object {
         private const val SERVICE_NAME = "central-portal-publish-service"
+        private val logger = Logging.getLogger(CentralPortalPublishBuildService::class.java)
+
+        /**
+         * Zips the root project's central-staging directory and uploads it to Central Portal.
+         * Called from aggregate publish tasks (e.g. publishKoreToMavenCentral) after all
+         * subproject publications have staged their artifacts.
+         */
+        fun uploadStagingBundle(
+            project: Project,
+            logger: org.gradle.api.logging.Logger,
+        ) {
+            val stagingDir = project.rootProject.layout.buildDirectory
+                .dir("central-staging").get().asFile
+
+            if (!stagingDir.exists() || stagingDir.listFiles().isNullOrEmpty()) {
+                logger.lifecycle("Central Portal: staging directory is empty, nothing to upload.")
+                return
+            }
+
+            val rawUser = project.findProperty("sonatype.username") as? String
+                ?: System.getenv("SONATYPE_USERNAME") ?: ""
+            val rawPassword = project.findProperty("sonatype.password") as? String
+                ?: System.getenv("SONATYPE_PASSWORD") ?: ""
+
+            val username = OnePasswordSupport.resolveHeadless(rawUser)
+            val password = OnePasswordSupport.resolveHeadless(rawPassword)
+
+            if (username.isBlank() || password.isBlank()) {
+                throw org.gradle.api.GradleException(
+                    "Central Portal: credentials not set. Set sonatype.username/sonatype.password or SONATYPE_USERNAME/SONATYPE_PASSWORD."
+                )
+            }
+
+            val zipFile = File(stagingDir.parentFile, "central-staging-${UUID.randomUUID()}.zip")
+            ZipOutputStream(FileOutputStream(zipFile)).use { zos ->
+                stagingDir.walkTopDown().forEach { file ->
+                    if (file.isDirectory) return@forEach
+                    if (file.name.contains("maven-metadata")) return@forEach
+                    val entryPath = file.toRelativeString(stagingDir)
+                    zos.putNextEntry(ZipEntry(entryPath))
+                    file.inputStream().use { it.copyTo(zos) }
+                    zos.closeEntry()
+                }
+            }
+            logger.lifecycle(
+                "📦 Central Portal: created bundle ${zipFile.name} (${zipFile.length() / 1024} KB)"
+            )
+
+            val service = CentralPortalService(
+                baseUrl = "https://central.sonatype.com/api/v1/",
+                username = username,
+                password = password,
+            )
+
+            val deploymentName = "${project.group}-${UUID.randomUUID()}"
+            logger.lifecycle(
+                "📤 Central Portal: uploading bundle as '$deploymentName' (publishingType=AUTOMATIC)..."
+            )
+            val deploymentId = service.upload(deploymentName, "AUTOMATIC", zipFile)
+            logger.lifecycle(
+                "✅ Central Portal: uploaded successfully. Deployment ID: $deploymentId"
+            )
+
+            zipFile.delete()
+            stagingDir.deleteRecursively()
+        }
 
         fun registerIfAbsent(
             project: Project,
@@ -130,6 +196,14 @@ internal abstract class CentralPortalPublishBuildService :
 
             val registry = project.extensions.findByType(BuildEventsListenerRegistry::class.java)
             registry?.onTaskCompletion(registration)
+
+            // Ensure publish tasks declare usage so Gradle keeps the service alive
+            // and calls close() after all publish tasks complete
+            project.tasks.configureEach {
+                if (name.startsWith("publish") && name.contains("MavenCentral")) {
+                    usesService(registration)
+                }
+            }
         }
     }
 }

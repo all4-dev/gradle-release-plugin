@@ -260,6 +260,15 @@ public class ReleasePlugin : Plugin<Project> {
                             }
                         }
                     }
+
+                    if (ext.destinations.mavenCentral.useCentralPortal.getOrElse(false)) {
+                        doLast {
+                            CentralPortalPublishBuildService.uploadStagingBundle(
+                                project = this@registerAggregateTasks,
+                                logger = logger,
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -607,7 +616,9 @@ public class ReleasePlugin : Plugin<Project> {
                         ?: System.getenv("SONATYPE_PASSWORD")
 
                     if (mavenCentralConfig.useCentralPortal.getOrElse(false)) {
-                        val stagingDir = layout.buildDirectory.dir("central-staging").get().asFile
+                        // Use root project staging dir so all subprojects stage to one place
+                        val stagingDir = rootProject.layout.buildDirectory
+                            .dir("central-staging").get().asFile
                         maven {
                             name = "MavenCentral"
                             url = stagingDir.toURI()
