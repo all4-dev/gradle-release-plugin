@@ -123,6 +123,9 @@ internal abstract class CentralPortalPublishBuildService :
                 return
             }
 
+            // Inject empty javadoc JARs where missing (Central Portal requirement)
+            injectMissingJavadocJars(stagingDir, logger)
+
             val rawUser = project.findProperty("sonatype.username") as? String
                 ?: System.getenv("SONATYPE_USERNAME") ?: ""
             val rawPassword = project.findProperty("sonatype.password") as? String
@@ -169,6 +172,30 @@ internal abstract class CentralPortalPublishBuildService :
 
             zipFile.delete()
             stagingDir.deleteRecursively()
+        }
+
+        /**
+         * Scans the staging directory for version directories that have a .pom but no
+         * -javadoc.jar, and creates empty javadoc JARs for them. Central Portal requires
+         * javadoc JARs for all published components.
+         */
+        private fun injectMissingJavadocJars(stagingDir: File, logger: org.gradle.api.logging.Logger) {
+            stagingDir.walkTopDown()
+                .filter { it.isFile && it.extension == "pom" && !it.name.contains("maven-metadata") }
+                .forEach { pomFile ->
+                    val versionDir = pomFile.parentFile
+                    val baseName = pomFile.nameWithoutExtension // e.g. "kore-desktop-1.0.0-alpha.6"
+                    val javadocJar = File(versionDir, "$baseName-javadoc.jar")
+                    if (!javadocJar.exists()) {
+                        // Create a valid empty JAR (just a ZIP with manifest)
+                        ZipOutputStream(FileOutputStream(javadocJar)).use { zos ->
+                            zos.putNextEntry(ZipEntry("META-INF/MANIFEST.MF"))
+                            zos.write("Manifest-Version: 1.0\n".toByteArray())
+                            zos.closeEntry()
+                        }
+                        logger.lifecycle("  + injected empty javadoc: ${javadocJar.name}")
+                    }
+                }
         }
 
         fun registerIfAbsent(

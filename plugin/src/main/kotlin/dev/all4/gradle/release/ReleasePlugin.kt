@@ -505,6 +505,7 @@ public class ReleasePlugin : Plugin<Project> {
 
             afterEvaluate {
                 configureRepositories(publishingExt)
+                ensureJavadocJar(publishingExt)
                 configurePom(publishingExt)
 
                 if (publishingExt != null) {
@@ -750,6 +751,11 @@ public class ReleasePlugin : Plugin<Project> {
                 }
             }
         }
+    }
+
+    private fun Project.ensureJavadocJar(@Suppress("UNUSED_PARAMETER") publishingExt: PublishingExtension?) {
+        // No-op at configuration time. Javadoc JARs are injected into the staging
+        // directory by uploadStagingBundle() before zipping, to satisfy Central Portal.
     }
 
     private fun Project.configurePom(publishingExt: PublishingExtension?) {
