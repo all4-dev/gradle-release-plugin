@@ -184,7 +184,7 @@ internal abstract class CentralPortalPublishBuildService :
                 .filter { it.isFile && it.extension == "pom" && !it.name.contains("maven-metadata") }
                 .forEach { pomFile ->
                     val versionDir = pomFile.parentFile
-                    val baseName = pomFile.nameWithoutExtension // e.g. "kore-desktop-1.0.0-alpha.6"
+                    val baseName = pomFile.nameWithoutExtension
                     val javadocJar = File(versionDir, "$baseName-javadoc.jar")
                     if (!javadocJar.exists()) {
                         // Create a valid empty JAR (just a ZIP with manifest)
@@ -193,9 +193,32 @@ internal abstract class CentralPortalPublishBuildService :
                             zos.write("Manifest-Version: 1.0\n".toByteArray())
                             zos.closeEntry()
                         }
-                        logger.lifecycle("  + injected empty javadoc: ${javadocJar.name}")
+                        // Generate checksums
+                        generateChecksums(javadocJar)
+                        // GPG sign
+                        gpgSign(javadocJar)
+                        logger.lifecycle("  + injected javadoc (with checksums + signature): ${javadocJar.name}")
                     }
                 }
+        }
+
+        private fun generateChecksums(file: File) {
+            val bytes = file.readBytes()
+            val md5 = java.security.MessageDigest.getInstance("MD5").digest(bytes)
+            File(file.path + ".md5").writeText(md5.joinToString("") { "%02x".format(it) })
+            val sha1 = java.security.MessageDigest.getInstance("SHA-1").digest(bytes)
+            File(file.path + ".sha1").writeText(sha1.joinToString("") { "%02x".format(it) })
+        }
+
+        private fun gpgSign(file: File) {
+            val gpgExe = listOf("/opt/homebrew/bin/gpg", "/usr/local/bin/gpg", "/usr/bin/gpg")
+                .firstOrNull { File(it).exists() } ?: "gpg"
+            val process = ProcessBuilder(
+                gpgExe, "--batch", "--yes", "--pinentry-mode", "loopback",
+                "--armor", "--detach-sign", file.absolutePath
+            ).redirectErrorStream(true).start()
+            process.waitFor()
+            // .asc file is created by gpg next to the original file
         }
 
         fun registerIfAbsent(
