@@ -113,6 +113,11 @@ publishing {
 
 signing {
     useGpgCmd()
+    val gpgPassphrase = System.getenv("SIGNING_GPG_PASSPHRASE")
+        ?: findProperty("signing.gnupg.passphrase") as? String
+    if (gpgPassphrase != null) {
+        project.ext.set("signing.gnupg.passphrase", gpgPassphrase)
+    }
 }
 
 mavenPublishing {

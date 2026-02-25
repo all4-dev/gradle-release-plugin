@@ -18,6 +18,8 @@ import org.gradle.kotlin.dsl.create
 import org.gradle.kotlin.dsl.credentials
 import org.gradle.kotlin.dsl.findByType
 import org.gradle.kotlin.dsl.withType
+import org.gradle.plugins.signing.SigningExtension
+import org.gradle.plugins.signing.SigningPlugin
 
 /**
  * Unified publishing plugin that auto-detects whether it's applied to the root project or a
@@ -638,6 +640,8 @@ public class ReleasePlugin : Plugin<Project> {
                         }
                     }
 
+                    configureSigning()
+
                     if (sonatypeUser == null || sonatypePassword == null) {
                         logger.warn(
                             "Maven Central enabled but SONATYPE_USERNAME/SONATYPE_PASSWORD not set. Publishing to Maven Central will fail."
@@ -691,6 +695,34 @@ public class ReleasePlugin : Plugin<Project> {
                     }
                 }
             }
+        }
+    }
+
+    private fun Project.configureSigning() {
+        pluginManager.apply(SigningPlugin::class.java)
+
+        val extra = extensions.extraProperties
+        val gpgPassphrase = System.getenv("SIGNING_GPG_PASSPHRASE")
+            ?: findProperty("signing.gnupg.passphrase") as? String
+        if (gpgPassphrase != null) {
+            extra.set("signing.gnupg.passphrase", gpgPassphrase)
+        }
+
+        val gpgExe = findProperty("signing.gnupg.executable") as? String
+        if (gpgExe == null) {
+            val defaultGpg = listOf("/opt/homebrew/bin/gpg", "/usr/local/bin/gpg", "/usr/bin/gpg")
+                .firstOrNull { java.io.File(it).exists() }
+            if (defaultGpg != null) {
+                extra.set("signing.gnupg.executable", defaultGpg)
+            }
+        }
+
+        extensions.configure<SigningExtension> {
+            useGpgCmd()
+            isRequired = version.toString().let { !it.endsWith("-SNAPSHOT") }
+
+            val publishing = extensions.getByType(GradlePublishingExtension::class.java)
+            sign(publishing.publications)
         }
     }
 
