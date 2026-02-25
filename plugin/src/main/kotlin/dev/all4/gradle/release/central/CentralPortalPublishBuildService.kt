@@ -1,5 +1,6 @@
 package dev.all4.gradle.release.central
 
+import dev.all4.gradle.release.util.OnePasswordSupport
 import java.io.File
 import java.io.FileOutputStream
 import java.util.UUID
@@ -25,8 +26,8 @@ internal abstract class CentralPortalPublishBuildService :
     private var buildFailed = false
 
     internal interface Params : BuildServiceParameters {
-        val username: Property<String>
-        val password: Property<String>
+        val rawUsername: Property<String>
+        val rawPassword: Property<String>
         val baseUrl: Property<String>
         val stagingDir: DirectoryProperty
         val groupId: Property<String>
@@ -58,11 +59,15 @@ internal abstract class CentralPortalPublishBuildService :
                 "📦 Central Portal: created bundle ${zipFile.name} (${zipFile.length() / 1024} KB)"
             )
 
+            // Resolve 1Password op:// references lazily at execution time
+            val username = OnePasswordSupport.resolveHeadless(parameters.rawUsername.get())
+            val password = OnePasswordSupport.resolveHeadless(parameters.rawPassword.get())
+
             val service =
                 CentralPortalService(
                     baseUrl = parameters.baseUrl.get(),
-                    username = parameters.username.get(),
-                    password = parameters.password.get(),
+                    username = username,
+                    password = password,
                 )
 
             val deploymentName = "${parameters.groupId.get()}-${UUID.randomUUID()}"
@@ -102,8 +107,8 @@ internal abstract class CentralPortalPublishBuildService :
 
         fun registerIfAbsent(
             project: Project,
-            username: String,
-            password: String,
+            rawUsername: String,
+            rawPassword: String,
             baseUrl: String,
             stagingDir: File,
             autoPublish: Boolean,
@@ -115,8 +120,8 @@ internal abstract class CentralPortalPublishBuildService :
                     CentralPortalPublishBuildService::class.java,
                 ) {
                     maxParallelUsages.set(1)
-                    parameters.username.set(username)
-                    parameters.password.set(password)
+                    parameters.rawUsername.set(rawUsername)
+                    parameters.rawPassword.set(rawPassword)
                     parameters.baseUrl.set(baseUrl)
                     parameters.stagingDir.set(stagingDir)
                     parameters.groupId.set(groupId)

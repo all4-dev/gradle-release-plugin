@@ -599,14 +599,12 @@ public class ReleasePlugin : Plugin<Project> {
 
                 val mavenCentralConfig = publishingExt?.destinations?.mavenCentral
                 if (mavenCentralConfig?.enabled?.orNull == true) {
-                    val sonatypeUser =
-                        (findProperty("sonatype.username") as? String
-                                ?: System.getenv("SONATYPE_USERNAME"))
-                            ?.let { OnePasswordSupport.resolve(it, this@configureRepositories) }
-                    val sonatypePassword =
-                        (findProperty("sonatype.password") as? String
-                                ?: System.getenv("SONATYPE_PASSWORD"))
-                            ?.let { OnePasswordSupport.resolve(it, this@configureRepositories) }
+                    // Raw credentials — NOT resolved at configuration time.
+                    // 1Password op:// references are resolved lazily at execution time.
+                    val rawUser = findProperty("sonatype.username") as? String
+                        ?: System.getenv("SONATYPE_USERNAME")
+                    val rawPassword = findProperty("sonatype.password") as? String
+                        ?: System.getenv("SONATYPE_PASSWORD")
 
                     if (mavenCentralConfig.useCentralPortal.getOrElse(false)) {
                         val stagingDir = layout.buildDirectory.dir("central-staging").get().asFile
@@ -617,8 +615,8 @@ public class ReleasePlugin : Plugin<Project> {
 
                         CentralPortalPublishBuildService.registerIfAbsent(
                             project = this@configureRepositories,
-                            username = sonatypeUser ?: "",
-                            password = sonatypePassword ?: "",
+                            rawUsername = rawUser ?: "",
+                            rawPassword = rawPassword ?: "",
                             baseUrl =
                                 mavenCentralConfig.stagingUrl.orNull
                                     ?: "https://central.sonatype.com/api/v1/",
@@ -634,17 +632,22 @@ public class ReleasePlugin : Plugin<Project> {
                                         ?: "https://s01.oss.sonatype.org/service/local/staging/deploy/maven2/"
                                 )
                             credentials {
-                                username = sonatypeUser ?: ""
-                                password = sonatypePassword ?: ""
+                                // Resolve lazily only when Gradle actually needs the credentials
+                                username = rawUser
+                                    ?.let { OnePasswordSupport.resolve(it, this@configureRepositories) }
+                                    ?: ""
+                                password = rawPassword
+                                    ?.let { OnePasswordSupport.resolve(it, this@configureRepositories) }
+                                    ?: ""
                             }
                         }
                     }
 
                     configureSigning()
 
-                    if (sonatypeUser == null || sonatypePassword == null) {
+                    if (rawUser == null || rawPassword == null) {
                         logger.warn(
-                            "Maven Central enabled but SONATYPE_USERNAME/SONATYPE_PASSWORD not set. Publishing to Maven Central will fail."
+                            "Maven Central enabled but sonatype.username/sonatype.password not set. Publishing to Maven Central will fail."
                         )
                     }
                 }
@@ -702,12 +705,6 @@ public class ReleasePlugin : Plugin<Project> {
         pluginManager.apply(SigningPlugin::class.java)
 
         val extra = extensions.extraProperties
-        val gpgPassphrase = System.getenv("SIGNING_GPG_PASSPHRASE")
-            ?: findProperty("signing.gnupg.passphrase") as? String
-        if (gpgPassphrase != null) {
-            extra.set("signing.gnupg.passphrase", gpgPassphrase)
-        }
-
         val gpgExe = findProperty("signing.gnupg.executable") as? String
         if (gpgExe == null) {
             val defaultGpg = listOf("/opt/homebrew/bin/gpg", "/usr/local/bin/gpg", "/usr/bin/gpg")
@@ -719,10 +716,28 @@ public class ReleasePlugin : Plugin<Project> {
 
         extensions.configure<SigningExtension> {
             useGpgCmd()
-            isRequired = version.toString().let { !it.endsWith("-SNAPSHOT") }
+            // Only required when actually publishing (not during sync/configuration)
+            isRequired = false
 
             val publishing = extensions.getByType(GradlePublishingExtension::class.java)
             sign(publishing.publications)
+        }
+
+        // Defer passphrase injection and make signing required only when publishing
+        gradle.taskGraph.whenReady {
+            val hasPublishTask = allTasks.any {
+                it.name.startsWith("publish") && it.name.contains("MavenCentral")
+            }
+            if (hasPublishTask) {
+                val gpgPassphrase = System.getenv("SIGNING_GPG_PASSPHRASE")
+                    ?: findProperty("signing.gnupg.passphrase") as? String
+                if (gpgPassphrase != null) {
+                    extra.set("signing.gnupg.passphrase", gpgPassphrase)
+                }
+                extensions.configure<SigningExtension> {
+                    isRequired = !version.toString().endsWith("-SNAPSHOT")
+                }
+            }
         }
     }
 

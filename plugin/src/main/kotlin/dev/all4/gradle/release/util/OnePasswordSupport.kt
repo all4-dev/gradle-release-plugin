@@ -101,6 +101,35 @@ public object OnePasswordSupport {
     }
 
     /**
+     * Resolves a value that might be a 1Password reference, without requiring a Project.
+     * Used in contexts where Gradle Project is not available (e.g., BuildService.close()).
+     */
+    public fun resolveHeadless(value: String): String {
+        if (!value.startsWith("op://")) {
+            return value
+        }
+
+        val opCli = findOpCli() ?: return value
+
+        return try {
+            val process = ProcessBuilder(opCli, "read", value)
+                .redirectErrorStream(true)
+                .start()
+
+            val output = process.inputStream.bufferedReader().readText()
+            val exitCode = process.waitFor()
+
+            if (exitCode == 0) {
+                output.trimEnd('\n', '\r')
+            } else {
+                value
+            }
+        } catch (e: Exception) {
+            value
+        }
+    }
+
+    /**
      * Resolves a Gradle Provider that might contain a 1Password reference.
      */
     public fun resolveProvider(provider: Provider<String>, project: Project): Provider<String> {
