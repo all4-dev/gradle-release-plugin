@@ -1,5 +1,11 @@
 package dev.all4.gradle.release
 
+import dev.all4.gradle.release.central.CentralPortalPublishBuildService
+import dev.all4.gradle.release.model.ChangelogMode
+import dev.all4.gradle.release.util.OnePasswordSupport
+import dev.all4.gradle.release.util.capitalized
+import dev.all4.gradle.release.util.detectRemoteUrl
+import dev.all4.gradle.release.util.toTaskName
 import org.gradle.api.GradleException
 import org.gradle.api.Plugin
 import org.gradle.api.Project
@@ -7,11 +13,6 @@ import org.gradle.api.credentials.HttpHeaderCredentials
 import org.gradle.api.publish.PublishingExtension as GradlePublishingExtension
 import org.gradle.api.publish.maven.MavenPublication
 import org.gradle.authentication.http.HttpHeaderAuthentication
-import dev.all4.gradle.release.model.ChangelogMode
-import dev.all4.gradle.release.util.OnePasswordSupport
-import dev.all4.gradle.release.util.capitalized
-import dev.all4.gradle.release.util.detectRemoteUrl
-import dev.all4.gradle.release.util.toTaskName
 import org.gradle.kotlin.dsl.configure
 import org.gradle.kotlin.dsl.create
 import org.gradle.kotlin.dsl.credentials
@@ -54,15 +55,23 @@ public class ReleasePlugin : Plugin<Project> {
         }
     }
 
-
     private fun applyToRoot(project: Project) {
         with(project) {
             val ext = extensions.create("releaseConfig", PublishingExtension::class.java)
             configureDefaults(ext)
 
-            tasks.register("importArtifact", dev.all4.gradle.release.tasks.ImportArtifactTask::class.java)
-            tasks.register("generateChangelog", dev.all4.gradle.release.tasks.GenerateChangelogTask::class.java)
-            tasks.register("createRelease", dev.all4.gradle.release.tasks.CreateReleaseTask::class.java)
+            tasks.register(
+                "importArtifact",
+                dev.all4.gradle.release.tasks.ImportArtifactTask::class.java,
+            )
+            tasks.register(
+                "generateChangelog",
+                dev.all4.gradle.release.tasks.GenerateChangelogTask::class.java,
+            )
+            tasks.register(
+                "createRelease",
+                dev.all4.gradle.release.tasks.CreateReleaseTask::class.java,
+            )
             tasks.register("bumpVersion", dev.all4.gradle.release.tasks.BumpVersionTask::class.java)
 
             afterEvaluate {
@@ -101,7 +110,9 @@ public class ReleasePlugin : Plugin<Project> {
                         if (!changelogFile.exists()) {
                             changelogFile.parentFile?.mkdirs()
                             changelogFile.writeText(createPlaceholderChangelog(moduleProject.name))
-                            logger.lifecycle("📝 Created changelog: ${moduleProject.projectDir}/CHANGELOG.md")
+                            logger.lifecycle(
+                                "📝 Created changelog: ${moduleProject.projectDir}/CHANGELOG.md"
+                            )
                         }
                     }
                 }
@@ -269,7 +280,9 @@ public class ReleasePlugin : Plugin<Project> {
         }
     }
 
-    private fun Project.validateLibraryGroupForPublishing(libGroup: dev.all4.gradle.release.model.LibraryGroup) {
+    private fun Project.validateLibraryGroupForPublishing(
+        libGroup: dev.all4.gradle.release.model.LibraryGroup
+    ) {
         val groupName = libGroup.getName()
         val modulePaths = libGroup.moduleProjectPaths()
         if (modulePaths.isEmpty()) {
@@ -283,7 +296,8 @@ public class ReleasePlugin : Plugin<Project> {
                 |      libraryGroups {
                 |          register("$groupName") { modules.add(":libs:$groupName") }
                 |      }
-                """.trimMargin()
+                """
+                    .trimMargin()
             )
         }
 
@@ -291,14 +305,15 @@ public class ReleasePlugin : Plugin<Project> {
         val missingPaths = modulePaths.filterNot { it in availablePaths }
         if (missingPaths.isNotEmpty()) {
             val availablePreview = availablePaths.sorted().take(25).joinToString(", ")
-            val details = missingPaths.joinToString("\n") { invalidPath ->
-                val suggestion = suggestModulePath(invalidPath, availablePaths)
-                if (suggestion != null && suggestion != invalidPath) {
-                    """  - $invalidPath (did you mean "$suggestion"?)"""
-                } else {
-                    "  - $invalidPath"
+            val details =
+                missingPaths.joinToString("\n") { invalidPath ->
+                    val suggestion = suggestModulePath(invalidPath, availablePaths)
+                    if (suggestion != null && suggestion != invalidPath) {
+                        """  - $invalidPath (did you mean "$suggestion"?)"""
+                    } else {
+                        "  - $invalidPath"
+                    }
                 }
-            }
             throw GradleException(
                 """
                 |❌ Invalid module path(s) in releaseConfig.libraryGroups["$groupName"].
@@ -311,32 +326,30 @@ public class ReleasePlugin : Plugin<Project> {
                 |
                 |Available project paths (first 25):
                 |  $availablePreview
-                """.trimMargin()
+                """
+                    .trimMargin()
             )
         }
 
         val modulesWithUnsetVersion =
-            modulePaths
-                .mapNotNull { modulePath ->
-                    val moduleProject = rootProject.findProject(modulePath) ?: return@mapNotNull null
-                    val moduleVersion = moduleProject.version.toString()
-                    if (isUnsetVersion(moduleVersion)) {
-                        modulePath to moduleVersion
-                    } else {
-                        null
-                    }
+            modulePaths.mapNotNull { modulePath ->
+                val moduleProject = rootProject.findProject(modulePath) ?: return@mapNotNull null
+                val moduleVersion = moduleProject.version.toString()
+                if (isUnsetVersion(moduleVersion)) {
+                    modulePath to moduleVersion
+                } else {
+                    null
                 }
+            }
 
         if (modulesWithUnsetVersion.isNotEmpty()) {
             val versionKey =
                 libGroup.versionKey.orNull?.takeIf { it.isNotBlank() } ?: "version.$groupName"
             val groupVersion = libGroup.version.orNull?.takeIf { it.isNotBlank() } ?: "(not set)"
             val rootVersion =
-                rootProject.extensions.findByType<PublishingExtension>()
-                    ?.version
-                    ?.orNull
-                    ?.takeIf { it.isNotBlank() }
-                    ?: "(not set)"
+                rootProject.extensions.findByType<PublishingExtension>()?.version?.orNull?.takeIf {
+                    it.isNotBlank()
+                } ?: "(not set)"
             val details =
                 modulesWithUnsetVersion.joinToString("\n") { (modulePath, version) ->
                     "  - $modulePath (version=$version)"
@@ -359,7 +372,8 @@ public class ReleasePlugin : Plugin<Project> {
                 |  2) Define that key in gradle.properties (or your version catalog source), for example:
                 |       $versionKey=1.0.0-alpha.3
                 |  3) Ensure your releaseConfig.libraryGroups["$groupName"].modules points to modules with explicit version.
-                """.trimMargin()
+                """
+                    .trimMargin()
             )
         }
     }
@@ -393,7 +407,7 @@ public class ReleasePlugin : Plugin<Project> {
 
             tasks.register(
                 "generateChangelog$capitalizedName",
-                dev.all4.gradle.release.tasks.GenerateChangelogTask::class.java
+                dev.all4.gradle.release.tasks.GenerateChangelogTask::class.java,
             ) {
                 this.groupName.set(groupName)
                 this.modulePaths.set(libGroup.modules)
@@ -417,10 +431,11 @@ public class ReleasePlugin : Plugin<Project> {
             for (libGroup in ext.libraryGroups) {
                 appendLine("  • ${libGroup.getName()}")
                 appendLine("    Modules: ${libGroup.modules.get().joinToString(", ")}")
-                val changelogInfo = when (libGroup.changelogMode.get()) {
-                    ChangelogMode.CENTRALIZED -> libGroup.changelogPath.get()
-                    ChangelogMode.PER_PROJECT -> "per-project (each module's CHANGELOG.md)"
-                }
+                val changelogInfo =
+                    when (libGroup.changelogMode.get()) {
+                        ChangelogMode.CENTRALIZED -> libGroup.changelogPath.get()
+                        ChangelogMode.PER_PROJECT -> "per-project (each module's CHANGELOG.md)"
+                    }
                 appendLine("    Changelog: $changelogInfo")
             }
         }
@@ -461,7 +476,6 @@ public class ReleasePlugin : Plugin<Project> {
         appendLine()
     }
 
-
     private fun applyToModule(project: Project) {
         with(project) {
             pluginManager.apply("maven-publish")
@@ -499,17 +513,24 @@ public class ReleasePlugin : Plugin<Project> {
                 val androidExt = extensions.findByName("android") ?: return@withPlugin
 
                 val groovyObj = androidExt as groovy.lang.GroovyObject
-                groovyObj.invokeMethod("publishing", arrayOf(
-                    closureOf<Any> {
-                        val publishing = this as groovy.lang.GroovyObject
-                        publishing.invokeMethod("singleVariant", arrayOf("release",
-                            closureOf<Any> {
-                                val variant = this as groovy.lang.GroovyObject
-                                variant.invokeMethod("withSourcesJar", emptyArray<Any>())
-                            }
-                        ))
-                    }
-                ))
+                groovyObj.invokeMethod(
+                    "publishing",
+                    arrayOf(
+                        closureOf<Any> {
+                            val publishing = this as groovy.lang.GroovyObject
+                            publishing.invokeMethod(
+                                "singleVariant",
+                                arrayOf(
+                                    "release",
+                                    closureOf<Any> {
+                                        val variant = this as groovy.lang.GroovyObject
+                                        variant.invokeMethod("withSourcesJar", emptyArray<Any>())
+                                    },
+                                ),
+                            )
+                        }
+                    ),
+                )
                 logger.info("Auto-configured Android library publishing with sources")
             } catch (e: Exception) {
                 logger.debug("Could not auto-configure Android publishing: ${e.message}")
@@ -519,8 +540,7 @@ public class ReleasePlugin : Plugin<Project> {
 
     private fun <T> closureOf(action: T.() -> Unit): groovy.lang.Closure<Unit> =
         object : groovy.lang.Closure<Unit>(this) {
-            @Suppress("UNCHECKED_CAST")
-            override fun call(): Unit = (delegate as T).action()
+            @Suppress("UNCHECKED_CAST") override fun call(): Unit = (delegate as T).action()
         }
 
     private fun Project.configureRepositories(publishingExt: PublishingExtension?) {
@@ -579,23 +599,42 @@ public class ReleasePlugin : Plugin<Project> {
                 if (mavenCentralConfig?.enabled?.orNull == true) {
                     val sonatypeUser =
                         (findProperty("sonatype.username") as? String
-                            ?: System.getenv("SONATYPE_USERNAME"))
+                                ?: System.getenv("SONATYPE_USERNAME"))
                             ?.let { OnePasswordSupport.resolve(it, this@configureRepositories) }
                     val sonatypePassword =
                         (findProperty("sonatype.password") as? String
-                            ?: System.getenv("SONATYPE_PASSWORD"))
+                                ?: System.getenv("SONATYPE_PASSWORD"))
                             ?.let { OnePasswordSupport.resolve(it, this@configureRepositories) }
 
-                    maven {
-                        name = "MavenCentral"
-                        url =
-                            uri(
+                    if (mavenCentralConfig.useCentralPortal.getOrElse(false)) {
+                        val stagingDir = layout.buildDirectory.dir("central-staging").get().asFile
+                        maven {
+                            name = "MavenCentral"
+                            url = stagingDir.toURI()
+                        }
+
+                        CentralPortalPublishBuildService.registerIfAbsent(
+                            project = this@configureRepositories,
+                            username = sonatypeUser ?: "",
+                            password = sonatypePassword ?: "",
+                            baseUrl =
                                 mavenCentralConfig.stagingUrl.orNull
-                                    ?: "https://s01.oss.sonatype.org/service/local/staging/deploy/maven2/"
-                            )
-                        credentials {
-                            username = sonatypeUser ?: ""
-                            password = sonatypePassword ?: ""
+                                    ?: "https://central.sonatype.com/api/v1/",
+                            stagingDir = stagingDir,
+                            autoPublish = true,
+                        )
+                    } else {
+                        maven {
+                            name = "MavenCentral"
+                            url =
+                                uri(
+                                    mavenCentralConfig.stagingUrl.orNull
+                                        ?: "https://s01.oss.sonatype.org/service/local/staging/deploy/maven2/"
+                                )
+                            credentials {
+                                username = sonatypeUser ?: ""
+                                password = sonatypePassword ?: ""
+                            }
                         }
                     }
 
@@ -617,8 +656,16 @@ public class ReleasePlugin : Plugin<Project> {
                             }
 
                             if (customRepo.username.isPresent && customRepo.password.isPresent) {
-                                val resolvedUsername = OnePasswordSupport.resolve(customRepo.username.get(), this@configureRepositories)
-                                val resolvedPassword = OnePasswordSupport.resolve(customRepo.password.get(), this@configureRepositories)
+                                val resolvedUsername =
+                                    OnePasswordSupport.resolve(
+                                        customRepo.username.get(),
+                                        this@configureRepositories,
+                                    )
+                                val resolvedPassword =
+                                    OnePasswordSupport.resolve(
+                                        customRepo.password.get(),
+                                        this@configureRepositories,
+                                    )
                                 credentials {
                                     username = resolvedUsername
                                     password = resolvedPassword
@@ -629,7 +676,11 @@ public class ReleasePlugin : Plugin<Project> {
                                 customRepo.authHeaderName.isPresent &&
                                     customRepo.authHeaderValue.isPresent
                             ) {
-                                val resolvedHeaderValue = OnePasswordSupport.resolve(customRepo.authHeaderValue.get(), this@configureRepositories)
+                                val resolvedHeaderValue =
+                                    OnePasswordSupport.resolve(
+                                        customRepo.authHeaderValue.get(),
+                                        this@configureRepositories,
+                                    )
                                 credentials(HttpHeaderCredentials::class) {
                                     name = customRepo.authHeaderName.get()
                                     value = resolvedHeaderValue
@@ -651,14 +702,16 @@ public class ReleasePlugin : Plugin<Project> {
                 ?: findProperty("library.version") as? String
                 ?: version.toString()
 
-        val libraryArtifactId = findProperty("library.artifactId") as? String
-            ?: detectArtifactIdFromGroups(publishingExt)
+        val libraryArtifactId =
+            findProperty("library.artifactId") as? String
+                ?: detectArtifactIdFromGroups(publishingExt)
 
         extensions.configure<GradlePublishingExtension> {
             publications.withType<MavenPublication>().configureEach {
                 if (libraryGroup != null) groupId = libraryGroup
                 if (libraryArtifactId != null) {
-                    val suffix = if (artifactId.contains("-")) "-${artifactId.substringAfter("-")}" else ""
+                    val suffix =
+                        if (artifactId.contains("-")) "-${artifactId.substringAfter("-")}" else ""
                     artifactId = "$libraryArtifactId$suffix"
                 }
                 version = libraryVersion
@@ -711,9 +764,9 @@ public class ReleasePlugin : Plugin<Project> {
     }
 
     /**
-     * Auto-detect artifact ID from libraryGroups configuration.
-     * If module belongs to a group and module name != group name, prefix with group name.
-     * Example: module "charts" in group "theme" → "theme-charts"
+     * Auto-detect artifact ID from libraryGroups configuration. If module belongs to a group and
+     * module name != group name, prefix with group name. Example: module "charts" in group "theme"
+     * → "theme-charts"
      */
     private fun Project.detectArtifactIdFromGroups(publishingExt: PublishingExtension?): String? {
         if (publishingExt == null) return null
