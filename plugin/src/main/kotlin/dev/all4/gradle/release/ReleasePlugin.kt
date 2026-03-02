@@ -80,6 +80,7 @@ public class ReleasePlugin : Plugin<Project> {
                 ensureChangelogs(ext)
                 registerAggregateTasks(ext)
                 registerChangelogTasks(ext)
+                warnUnresolvedVersions(ext)
             }
         }
     }
@@ -427,6 +428,25 @@ public class ReleasePlugin : Plugin<Project> {
         }
     }
 
+    private fun Project.warnUnresolvedVersions(ext: PublishingExtension) {
+        for (libGroup in ext.libraryGroups) {
+            val groupName = libGroup.getName()
+            val groupVersion = libGroup.version.orNull ?: ext.version.orNull
+            for (modulePath in libGroup.modules.get()) {
+                val moduleProject = findProject(modulePath) ?: continue
+                val moduleVersion = moduleProject.version.toString()
+                if (isUnsetVersion(moduleVersion) && groupVersion == null) {
+                    logger.warn(
+                        "⚠️  releaseConfig.libraryGroups[\"$groupName\"] module $modulePath " +
+                            "has no resolvable version. Set libraryGroup.version, " +
+                            "releaseConfig.version, or module-level project.version " +
+                            "to avoid 'unspecified' publications."
+                    )
+                }
+            }
+        }
+    }
+
     private fun buildPublishingInfo(ext: PublishingExtension): String = buildString {
         appendLine()
         appendLine("📦 Publishing Configuration")
@@ -494,7 +514,9 @@ public class ReleasePlugin : Plugin<Project> {
             val publishingExt = rootProject.extensions.findByType<PublishingExtension>()
 
             val propertyVersion =
-                publishingExt?.version?.orNull ?: findProperty("library.version") as? String
+                publishingExt?.version?.orNull
+                    ?: findProperty("library.version") as? String
+                    ?: resolveVersionFromLibraryGroup(publishingExt, path)
             val propertyGroup =
                 publishingExt?.group?.orNull ?: findProperty("library.group") as? String
 
@@ -636,7 +658,7 @@ public class ReleasePlugin : Plugin<Project> {
                             autoPublish = true,
                         )
                     } else {
-                        maven {
+                        val mavenRepo = maven {
                             name = "MavenCentral"
                             url =
                                 uri(
@@ -644,13 +666,25 @@ public class ReleasePlugin : Plugin<Project> {
                                         ?: "https://s01.oss.sonatype.org/service/local/staging/deploy/maven2/"
                                 )
                             credentials {
-                                // Resolve lazily only when Gradle actually needs the credentials
-                                username = rawUser
-                                    ?.let { OnePasswordSupport.resolve(it, this@configureRepositories) }
-                                    ?: ""
-                                password = rawPassword
-                                    ?.let { OnePasswordSupport.resolve(it, this@configureRepositories) }
-                                    ?: ""
+                                // Placeholders — resolved lazily below
+                                username = ""
+                                password = ""
+                            }
+                        }
+                        // Defer 1Password resolution until a publish task is in the graph
+                        gradle.taskGraph.whenReady {
+                            val hasPublishTask = allTasks.any {
+                                it.name.startsWith("publish") && it.name.contains("MavenCentral")
+                            }
+                            if (hasPublishTask) {
+                                mavenRepo.credentials {
+                                    username = rawUser
+                                        ?.let { OnePasswordSupport.resolve(it, this@configureRepositories) }
+                                        ?: ""
+                                    password = rawPassword
+                                        ?.let { OnePasswordSupport.resolve(it, this@configureRepositories) }
+                                        ?: ""
+                                }
                             }
                         }
                     }
@@ -764,6 +798,7 @@ public class ReleasePlugin : Plugin<Project> {
         val libraryVersion =
             publishingExt?.version?.orNull
                 ?: findProperty("library.version") as? String
+                ?: resolveVersionFromLibraryGroup(publishingExt, path)
                 ?: version.toString()
 
         val libraryArtifactId =
@@ -825,6 +860,23 @@ public class ReleasePlugin : Plugin<Project> {
                 }
             }
         }
+    }
+
+    /**
+     * Resolves the version for a subproject by finding the libraryGroup that contains it
+     * and returning that group's version, or else the root-level releaseConfig.version.
+     */
+    private fun resolveVersionFromLibraryGroup(
+        ext: PublishingExtension?,
+        projectPath: String,
+    ): String? {
+        if (ext == null) return null
+        for (libGroup in ext.libraryGroups) {
+            if (libGroup.containsModule(projectPath)) {
+                libGroup.version.orNull?.let { return it }
+            }
+        }
+        return null
     }
 
     /**
