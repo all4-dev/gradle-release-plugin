@@ -1,5 +1,6 @@
 package dev.all4.gradle.release.tasks
 
+import dev.all4.gradle.release.util.ReleaseOperations
 import java.io.File
 import org.gradle.api.DefaultTask
 import org.gradle.api.file.RegularFileProperty
@@ -101,8 +102,8 @@ public abstract class BumpVersionTask : DefaultTask() {
 
     val file = versionFile.get().asFile
     val versionKey = if (group != null) "version.$group" else null
-    val currentVersion = readCurrentVersion(file, versionKey)
-    
+    val currentVersion = ReleaseOperations.readCurrentVersion(file, versionKey)
+
     if (currentVersion == null) {
       if (group != null) {
         logger.error("❌ Could not find version.$group in ${file.name}")
@@ -113,15 +114,15 @@ public abstract class BumpVersionTask : DefaultTask() {
       return
     }
 
-    val newVersion = calculateNewVersion(currentVersion, bump)
+    val newVersion = ReleaseOperations.calculateNewVersion(currentVersion, bump, logger)
     val label = if (group != null) "$group: " else ""
     logger.lifecycle("🆙 Bumping ${label}version: $currentVersion → $newVersion")
 
-    updateVersionInFile(file, currentVersion, newVersion, versionKey)
+    ReleaseOperations.updateVersionInFile(file, currentVersion, newVersion, versionKey)
     logger.lifecycle("✅ Updated ${file.name}")
 
     if (commitChanges.get()) {
-      val msg = if (group != null) "chore($group): bump version to $newVersion" 
+      val msg = if (group != null) "chore($group): bump version to $newVersion"
                 else "chore: bump version to $newVersion"
       commitVersionChange(file, newVersion, msg)
     }
@@ -135,124 +136,9 @@ public abstract class BumpVersionTask : DefaultTask() {
     logger.lifecycle("📦 New version: $newVersion")
   }
 
-  private fun readCurrentVersion(file: File, versionKey: String? = null): String? {
-    val content = file.readText()
-
-    if (versionKey != null) {
-      val keyRegex = Regex("""^${Regex.escape(versionKey)}\s*=\s*(.+)$""", RegexOption.MULTILINE)
-      val match = keyRegex.find(content)
-      return match?.groupValues?.get(1)?.trim()?.removeSurrounding("\"")
-    }
-
-    val libVersionMatch = Regex("""^library\.version\s*=\s*(.+)$""", RegexOption.MULTILINE).find(content)
-    if (libVersionMatch != null) {
-      return libVersionMatch.groupValues[1].trim().removeSurrounding("\"")
-    }
-
-    val propsMatch = Regex("""^version\s*=\s*(.+)$""", RegexOption.MULTILINE).find(content)
-    if (propsMatch != null) {
-      return propsMatch.groupValues[1].trim().removeSurrounding("\"")
-    }
-
-    val ktsMatch = Regex("""version\s*=\s*"([^"]+)"""").find(content)
-    if (ktsMatch != null) {
-      return ktsMatch.groupValues[1]
-    }
-
-    val groovyMatch = Regex("""version\s*[=]?\s*['"]([^'"]+)['"]""").find(content)
-    if (groovyMatch != null) {
-      return groovyMatch.groupValues[1]
-    }
-
-    return null
-  }
-
-  private fun calculateNewVersion(current: String, bump: String): String {
-    if (bump.matches(Regex("""^\d+\.\d+\.\d+.*"""))) {
-      return bump
-    }
-
-    val versionRegex = Regex("""^(\d+)\.(\d+)\.(\d+)(?:-([a-zA-Z]+)\.?(\d+)?)?$""")
-    val match = versionRegex.find(current)
-
-    if (match == null) {
-      logger.warn("⚠️  Version '$current' is not semantic, using as-is")
-      return current
-    }
-
-    val major = match.groupValues[1].toInt()
-    val minor = match.groupValues[2].toInt()
-    val patch = match.groupValues[3].toInt()
-    val prereleaseLabel = match.groupValues[4].ifEmpty { null }
-    val prereleaseNum = match.groupValues[5].toIntOrNull()
-
-    return when (bump.lowercase()) {
-      "major" -> "${major + 1}.0.0"
-      "minor" -> "$major.${minor + 1}.0"
-      "patch" -> "$major.$minor.${patch + 1}"
-      "prerelease", "pre" -> {
-        if (prereleaseLabel != null && prereleaseNum != null) {
-          "$major.$minor.$patch-$prereleaseLabel.${prereleaseNum + 1}"
-        } else if (prereleaseLabel != null) {
-          "$major.$minor.$patch-$prereleaseLabel.1"
-        } else {
-          "$major.$minor.$patch-alpha.1"
-        }
-      }
-      "release" -> {
-        "$major.$minor.$patch"
-      }
-      "alpha" -> "$major.$minor.$patch-alpha.1"
-      "beta" -> "$major.$minor.$patch-beta.1"
-      "rc" -> "$major.$minor.$patch-rc.1"
-      else -> {
-        if (prereleaseLabel != null && prereleaseNum != null) {
-          "$major.$minor.$patch-$prereleaseLabel.${prereleaseNum + 1}"
-        } else {
-          "$major.$minor.${patch + 1}"
-        }
-      }
-    }
-  }
-
-  private fun updateVersionInFile(file: File, oldVersion: String, newVersion: String, versionKey: String? = null) {
-    var content = file.readText()
-
-    if (versionKey != null) {
-      content = content.replace(
-          Regex("""^(${Regex.escape(versionKey)}\s*=\s*).*$""", RegexOption.MULTILINE),
-          "$1$newVersion"
-      )
-      file.writeText(content)
-      return
-    }
-
-    content = content.replace(
-        Regex("""^(library\.version\s*=\s*).*$""", RegexOption.MULTILINE),
-        "$1$newVersion"
-    )
-
-    content = content.replace(
-        Regex("""^(version\s*=\s*).*$""", RegexOption.MULTILINE),
-        "$1$newVersion"
-    )
-
-    content = content.replace(
-        Regex("""(version\s*=\s*")${Regex.escape(oldVersion)}(")"""),
-        "$1$newVersion$2"
-    )
-
-    content = content.replace(
-        Regex("""(version\s*[=]?\s*['"])${Regex.escape(oldVersion)}(['"])"""),
-        "$1$newVersion$2"
-    )
-
-    file.writeText(content)
-  }
-
   private fun commitVersionChange(file: File, version: String, message: String) {
     logger.lifecycle("📝 Committing version change...")
-    
+
     val workDir = rootDir.get()
     val gitAdd = ProcessBuilder("git", "add", file.absolutePath)
         .directory(workDir)

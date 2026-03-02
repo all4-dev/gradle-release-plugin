@@ -3,6 +3,7 @@ package dev.all4.gradle.release
 import dev.all4.gradle.release.central.CentralPortalPublishBuildService
 import dev.all4.gradle.release.model.ChangelogMode
 import dev.all4.gradle.release.util.OnePasswordSupport
+import dev.all4.gradle.release.util.ReleaseOperations
 import dev.all4.gradle.release.util.capitalized
 import dev.all4.gradle.release.util.detectRemoteUrl
 import dev.all4.gradle.release.util.toTaskName
@@ -310,6 +311,70 @@ public class ReleasePlugin : Plugin<Project> {
                     }
                 }
             }
+
+        }
+
+        // Per-group release lifecycle: publish → tag + GitHub release → bump
+        for (releaseGroup in ext.releaseGroups) {
+            val rgName = releaseGroup.getName()
+            val rgCapitalized = rgName.capitalized()
+            val libGroup = ext.libraryGroups.findByName(rgName)
+            if (libGroup == null) {
+                logger.warn("⚠️  releaseGroups[\"$rgName\"] has no matching libraryGroup — skipped")
+                continue
+            }
+
+            val effectiveModules = releaseGroup.effectiveModules(libGroup.modules.get())
+
+            tasks.register("release${rgCapitalized}") {
+                group = "publishing"
+                description = "Publishes $rgName, creates GitHub release, and bumps version"
+
+                for (modulePath in effectiveModules) {
+                    if (findProject(modulePath) == null) continue
+                    if (ext.destinations.mavenStandalone.enabled.get())
+                        dependsOn("$modulePath:publishAllPublicationsToMavenStandaloneRepository")
+                    if (ext.destinations.mavenLocal.enabled.get())
+                        dependsOn("$modulePath:publishToMavenLocal")
+                    if (ext.destinations.githubPages.enabled.get())
+                        dependsOn("$modulePath:publishAllPublicationsToGhPagesMavenRepository")
+                    if (ext.destinations.githubPackages.enabled.get())
+                        dependsOn("$modulePath:publishAllPublicationsToGitHubPackagesRepository")
+                    if (ext.destinations.mavenCentral.enabled.get())
+                        dependsOn("$modulePath:publishAllPublicationsToMavenCentralRepository")
+                }
+
+                if (ext.destinations.mavenCentral.useCentralPortal.getOrElse(false)) {
+                    doLast {
+                        CentralPortalPublishBuildService.uploadStagingBundle(
+                            project = this@registerAggregateTasks,
+                            logger = logger,
+                        )
+                    }
+                }
+
+                doLast {
+                    val version = libGroup.version.orNull
+                        ?: ext.version.orNull
+                        ?: error("No version configured for $rgName")
+
+                    ReleaseOperations.createTagAndRelease(
+                        project = this@registerAggregateTasks,
+                        version = version,
+                        prerelease = version.contains("-"),
+                    )
+
+                    val versionKey = libGroup.versionKey.orNull
+                        ?: "version.${rgName}"
+
+                    ReleaseOperations.bumpVersion(
+                        project = this@registerAggregateTasks,
+                        versionKey = versionKey,
+                        bumpType = "pre",
+                        commit = true,
+                    )
+                }
+            }
         }
 
         if (ext.destinations.mavenStandalone.enabled.get()) {
@@ -583,6 +648,9 @@ public class ReleasePlugin : Plugin<Project> {
                 appendLine("  • publish${name}ToGitHubPackages")
             if (ext.destinations.mavenCentral.enabled.get())
                 appendLine("  • publish${name}ToMavenCentral")
+        }
+        for (rg in ext.releaseGroups) {
+            appendLine("  • release${rg.getName().capitalized()}")
         }
         if (ext.destinations.mavenLocal.enabled.get()) appendLine("  • publishAllToMavenLocal")
         if (ext.destinations.mavenStandalone.enabled.get()) appendLine("  • publishAllToStandalone")

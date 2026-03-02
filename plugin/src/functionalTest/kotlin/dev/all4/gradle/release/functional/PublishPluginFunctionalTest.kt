@@ -220,4 +220,49 @@ class PublishPluginFunctionalTest {
 
         assertThat(result.output).contains("BUILD SUCCESSFUL")
     }
+
+    @Test
+    fun `release lifecycle task is registered only for releaseGroups`() {
+        buildFile.writeText(
+            """
+            plugins {
+                id("dev.all4.release")
+            }
+
+            releaseConfig {
+                group.set("com.example")
+                version.set("1.0.0")
+
+                destinations {
+                    mavenStandalone {
+                        enabled.set(true)
+                        path.set(file("build/maven-standalone"))
+                    }
+                }
+
+                libraryGroups {
+                    create("core") { modules.set(listOf(":core")) }
+                    create("demo") { modules.set(listOf(":demo")) }
+                }
+
+                releaseGroups {
+                    create("core")
+                }
+            }
+            """
+                .trimIndent()
+        )
+
+        val result =
+            GradleRunner.create()
+                .withProjectDir(projectDir)
+                .withPluginClasspath()
+                .withArguments("tasks", "--group=publishing", "--stacktrace")
+                .build()
+
+        assertThat(result.output).contains("releaseCore")
+        assertThat(result.output)
+            .contains("Publishes core, creates GitHub release, and bumps version")
+        assertThat(result.output).doesNotContain("releaseDemo")
+    }
 }

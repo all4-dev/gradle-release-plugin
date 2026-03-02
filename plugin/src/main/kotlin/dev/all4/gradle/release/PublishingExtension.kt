@@ -3,6 +3,7 @@ package dev.all4.gradle.release
 import dev.all4.gradle.release.config.PomConfiguration
 import dev.all4.gradle.release.destinations.PublishDestinations
 import dev.all4.gradle.release.model.LibraryGroup
+import dev.all4.gradle.release.model.ReleaseGroup
 import javax.inject.Inject
 import org.gradle.api.Action
 import org.gradle.api.NamedDomainObjectContainer
@@ -36,6 +37,8 @@ public abstract class PublishingExtension @Inject constructor(private val object
     public val pom: PomConfiguration = objects.newInstance(PomConfiguration::class.java)
     public val libraryGroups: NamedDomainObjectContainer<LibraryGroup> =
         objects.domainObjectContainer(LibraryGroup::class.java)
+    public val releaseGroups: NamedDomainObjectContainer<ReleaseGroup> =
+        objects.domainObjectContainer(ReleaseGroup::class.java)
     public val destinations: PublishDestinations = objects.newInstance(PublishDestinations::class.java)
 
     public fun github(repository: String) {
@@ -51,6 +54,10 @@ public abstract class PublishingExtension @Inject constructor(private val object
 
     public fun libraryGroups(action: Action<NamedDomainObjectContainer<LibraryGroup>>) {
       action.execute(libraryGroups)
+    }
+
+    public fun releaseGroups(action: Action<NamedDomainObjectContainer<ReleaseGroup>>) {
+      action.execute(releaseGroups)
     }
 
     public fun destinations(action: Action<PublishDestinations>) {
