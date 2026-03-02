@@ -20,7 +20,7 @@ plugins {
 
 group = "dev.all4.gradle"
 
-version = "0.1.0-alpha.10"
+version = "0.1.0-alpha.11"
 
 // Load publishing credentials from properties file
 rootProject.file("publishing.properties").takeIf { it.exists() }?.let { propsFile ->
