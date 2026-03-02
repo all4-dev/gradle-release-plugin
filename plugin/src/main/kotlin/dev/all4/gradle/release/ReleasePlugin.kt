@@ -75,6 +75,18 @@ public class ReleasePlugin : Plugin<Project> {
                 dev.all4.gradle.release.tasks.CreateReleaseTask::class.java,
             )
             tasks.register("bumpVersion", dev.all4.gradle.release.tasks.BumpVersionTask::class.java)
+            tasks.register(
+                "initPublishingProperties",
+                dev.all4.gradle.release.tasks.InitPublishingPropertiesTask::class.java,
+            ) {
+                group = "publishing"
+                description =
+                    "Creates a publishing.properties template with credential placeholders"
+                outputFile.set(project.layout.projectDirectory.file(ext.propertiesFile))
+                useOnePassword.set(ext.useOnePassword)
+                mavenCentralEnabled.set(ext.destinations.mavenCentral.enabled)
+                githubPackagesEnabled.set(ext.destinations.githubPackages.enabled)
+            }
 
             afterEvaluate {
                 ensureChangelogs(ext)

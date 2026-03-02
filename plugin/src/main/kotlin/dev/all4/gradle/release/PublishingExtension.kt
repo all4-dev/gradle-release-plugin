@@ -30,6 +30,12 @@ public abstract class PublishingExtension @Inject constructor(private val object
     public abstract val dryRun: Property<Boolean>
     public abstract val autoPublishOnBuild: Property<Boolean>
 
+    /** Path to the publishing properties file (relative to root project). */
+    public abstract val propertiesFile: Property<String>
+
+    /** Whether credential placeholders use 1Password op:// references. */
+    public abstract val useOnePassword: Property<Boolean>
+
     public val pom: PomConfiguration = objects.newInstance(PomConfiguration::class.java)
     public val libraryGroups: NamedDomainObjectContainer<LibraryGroup> =
         objects.domainObjectContainer(LibraryGroup::class.java)
@@ -57,5 +63,7 @@ public abstract class PublishingExtension @Inject constructor(private val object
     init {
         dryRun.convention(true)
         autoPublishOnBuild.convention(false)
+        propertiesFile.convention("publishing.properties")
+        useOnePassword.convention(false)
     }
 }
