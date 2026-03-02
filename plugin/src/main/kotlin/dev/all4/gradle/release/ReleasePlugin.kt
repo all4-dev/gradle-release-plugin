@@ -317,8 +317,47 @@ public class ReleasePlugin : Plugin<Project> {
                 group = "publishing"
                 description = "Publishes all library groups to maven-standalone"
                 for (libGroup in ext.libraryGroups) {
-                    val capitalizedName = libGroup.getName().replaceFirstChar { it.uppercase() }
-                    dependsOn("publish${capitalizedName}ToStandalone")
+                    dependsOn("publish${libGroup.getName().capitalized()}ToStandalone")
+                }
+            }
+        }
+
+        if (ext.destinations.mavenLocal.enabled.get()) {
+            tasks.register("publishAllToMavenLocal") {
+                group = "publishing"
+                description = "Publishes all library groups to Maven Local"
+                for (libGroup in ext.libraryGroups) {
+                    dependsOn("publish${libGroup.getName().capitalized()}ToMavenLocal")
+                }
+            }
+        }
+
+        if (ext.destinations.githubPages.enabled.get()) {
+            tasks.register("publishAllToGitHubPages") {
+                group = "publishing"
+                description = "Publishes all library groups to GitHub Pages"
+                for (libGroup in ext.libraryGroups) {
+                    dependsOn("publish${libGroup.getName().capitalized()}ToGitHubPages")
+                }
+            }
+        }
+
+        if (ext.destinations.githubPackages.enabled.get()) {
+            tasks.register("publishAllToGitHubPackages") {
+                group = "publishing"
+                description = "Publishes all library groups to GitHub Packages"
+                for (libGroup in ext.libraryGroups) {
+                    dependsOn("publish${libGroup.getName().capitalized()}ToGitHubPackages")
+                }
+            }
+        }
+
+        if (ext.destinations.mavenCentral.enabled.get()) {
+            tasks.register("publishAllToMavenCentral") {
+                group = "publishing"
+                description = "Publishes all library groups to Maven Central"
+                for (libGroup in ext.libraryGroups) {
+                    dependsOn("publish${libGroup.getName().capitalized()}ToMavenCentral")
                 }
             }
         }
@@ -545,7 +584,11 @@ public class ReleasePlugin : Plugin<Project> {
             if (ext.destinations.mavenCentral.enabled.get())
                 appendLine("  • publish${name}ToMavenCentral")
         }
+        if (ext.destinations.mavenLocal.enabled.get()) appendLine("  • publishAllToMavenLocal")
         if (ext.destinations.mavenStandalone.enabled.get()) appendLine("  • publishAllToStandalone")
+        if (ext.destinations.githubPages.enabled.get()) appendLine("  • publishAllToGitHubPages")
+        if (ext.destinations.githubPackages.enabled.get()) appendLine("  • publishAllToGitHubPackages")
+        if (ext.destinations.mavenCentral.enabled.get()) appendLine("  • publishAllToMavenCentral")
         appendLine("  • publishingInfo")
         appendLine("  • importArtifact --file=<path> or --dir=<path>")
         appendLine()
@@ -819,8 +862,11 @@ public class ReleasePlugin : Plugin<Project> {
                 it.name.startsWith("publish") && it.name.contains("MavenCentral")
             }
             if (hasPublishTask) {
-                val gpgPassphrase = System.getenv("SIGNING_GPG_PASSPHRASE")
+                val rawPassphrase = System.getenv("SIGNING_GPG_PASSPHRASE")
                     ?: findProperty("signing.gnupg.passphrase") as? String
+                    ?: findProperty("signing.gpg.passphrase") as? String
+                val gpgPassphrase = rawPassphrase
+                    ?.let { OnePasswordSupport.resolve(it, this@configureSigning) }
                 if (gpgPassphrase != null) {
                     extra.set("signing.gnupg.passphrase", gpgPassphrase)
                 }
