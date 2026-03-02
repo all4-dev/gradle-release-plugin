@@ -22,9 +22,8 @@ group = "dev.all4.gradle"
 
 version = "0.1.0-alpha.11"
 
-// Load publishing credentials from properties file (one level up from the includeBuild root)
+// Load publishing credentials from properties file
 rootDir.resolve("publishing.properties")
-    .let { if (it.exists()) it else rootDir.resolve("../publishing.properties") }
     .takeIf { it.exists() }?.let { propsFile ->
     propsFile.readLines()
         .filter { it.isNotBlank() && !it.trimStart().startsWith("#") && "=" in it }
