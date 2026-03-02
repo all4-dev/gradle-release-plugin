@@ -87,10 +87,20 @@ public class ReleasePlugin : Plugin<Project> {
                 githubPackagesEnabled.set(ext.destinations.githubPackages.enabled)
             }
 
+            val validateCredentials =
+                tasks.register(
+                    "validatePublishingCredentials",
+                    dev.all4.gradle.release.tasks.ValidateCredentialsTask::class.java,
+                ) {
+                    group = "publishing"
+                    description = "Validates that publishing.properties is not tracked by git"
+                    propertiesFile.set(project.layout.projectDirectory.file(ext.propertiesFile))
+                }
+
             afterEvaluate {
                 loadPublishingProperties(ext)
                 ensureChangelogs(ext)
-                registerAggregateTasks(ext)
+                registerAggregateTasks(ext, validateCredentials)
                 registerChangelogTasks(ext)
                 warnUnresolvedVersions(ext)
             }
@@ -174,7 +184,10 @@ public class ReleasePlugin : Plugin<Project> {
             .trimMargin()
     }
 
-    private fun Project.registerAggregateTasks(ext: PublishingExtension) {
+    private fun Project.registerAggregateTasks(
+        ext: PublishingExtension,
+        validateCredentials: org.gradle.api.tasks.TaskProvider<*>,
+    ) {
         for (libGroup in ext.libraryGroups) {
             val groupName = libGroup.getName()
             val capitalizedName = groupName.capitalized()
@@ -314,6 +327,12 @@ public class ReleasePlugin : Plugin<Project> {
             group = "help"
             description = "Shows publishing configuration"
             doLast { logger.lifecycle(buildPublishingInfo(ext)) }
+        }
+
+        tasks.configureEach {
+            if (name.startsWith("publish") && group == "publishing") {
+                dependsOn(validateCredentials)
+            }
         }
     }
 
