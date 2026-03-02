@@ -21,6 +21,16 @@ plugins {
 group = "dev.all4.gradle"
 
 version = "0.1.0-alpha.10"
+
+// Load publishing credentials from properties file
+rootProject.file("publishing.properties").takeIf { it.exists() }?.let { propsFile ->
+    propsFile.readLines()
+        .filter { it.isNotBlank() && !it.trimStart().startsWith("#") && "=" in it }
+        .forEach { line ->
+            val (key, value) = line.split("=", limit = 2)
+            project.ext.set(key.trim(), value.trim())
+        }
+}
 // Kover configurations from convention plugin
 val koverCli: Configuration by configurations
 val koverAgent: Configuration by configurations
@@ -79,10 +89,10 @@ gradlePlugin {
     }
 }
 
-val sonatypeUser: String? = System.getenv("SONATYPE_USERNAME")
-    ?: findProperty("mavenCentralUsername") as? String
-val sonatypePassword: String? = System.getenv("SONATYPE_PASSWORD")
-    ?: findProperty("mavenCentralPassword") as? String
+val sonatypeUser: String? = findProperty("sonatype.username") as? String
+    ?: System.getenv("SONATYPE_USERNAME")
+val sonatypePassword: String? = findProperty("sonatype.password") as? String
+    ?: System.getenv("SONATYPE_PASSWORD")
 
 val centralStagingDir = layout.buildDirectory.dir("central-staging")
 
@@ -131,8 +141,8 @@ publishing {
 
 signing {
     useGpgCmd()
-    val gpgPassphrase = System.getenv("SIGNING_GPG_PASSPHRASE")
-        ?: findProperty("signing.gnupg.passphrase") as? String
+    val gpgPassphrase = findProperty("signing.gnupg.passphrase") as? String
+        ?: System.getenv("SIGNING_GPG_PASSPHRASE")
     if (gpgPassphrase != null) {
         project.ext.set("signing.gnupg.passphrase", gpgPassphrase)
     }

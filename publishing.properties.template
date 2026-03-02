@@ -1,0 +1,14 @@
+# Publishing credentials
+# Copy to publishing.properties and fill in your values.
+# Use op:// references for 1Password, or plain values.
+
+# Maven Central / Sonatype
+sonatype.username=
+sonatype.password=
+
+# GPG Signing
+signing.gnupg.passphrase=
+
+# Gradle Plugin Portal
+gradle.publish.key=
+gradle.publish.secret=
