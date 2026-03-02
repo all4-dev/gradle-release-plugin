@@ -83,7 +83,6 @@ public class ReleasePlugin : Plugin<Project> {
                 description =
                     "Creates a publishing.properties template with credential placeholders"
                 outputFile.set(project.layout.projectDirectory.file(ext.propertiesFile))
-                useOnePassword.set(ext.useOnePassword)
                 mavenCentralEnabled.set(ext.destinations.mavenCentral.enabled)
                 githubPackagesEnabled.set(ext.destinations.githubPackages.enabled)
             }

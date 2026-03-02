@@ -4,8 +4,10 @@ import org.gradle.api.DefaultTask
 import org.gradle.api.file.RegularFileProperty
 import org.gradle.api.provider.Property
 import org.gradle.api.tasks.Input
+import org.gradle.api.tasks.Optional
 import org.gradle.api.tasks.OutputFile
 import org.gradle.api.tasks.TaskAction
+import org.gradle.api.tasks.options.Option
 
 /**
  * Generates a `publishing.properties` template with credential placeholders
@@ -14,6 +16,7 @@ import org.gradle.api.tasks.TaskAction
  * Usage:
  * ```bash
  * ./gradlew initPublishingProperties
+ * ./gradlew initPublishingProperties --op   # use 1Password op:// placeholders
  * ```
  *
  * If the file already exists it is left untouched — delete it to regenerate.
@@ -24,7 +27,17 @@ public abstract class InitPublishingPropertiesTask : DefaultTask() {
     public abstract val outputFile: RegularFileProperty
 
     @get:Input
+    @get:Optional
     public abstract val useOnePassword: Property<Boolean>
+
+    init {
+        useOnePassword.convention(false)
+    }
+
+    @Option(option = "op", description = "Use 1Password op:// reference placeholders")
+    public fun setOnePasswordOption(value: String) {
+        useOnePassword.set(value.toBoolean())
+    }
 
     @get:Input
     public abstract val mavenCentralEnabled: Property<Boolean>
