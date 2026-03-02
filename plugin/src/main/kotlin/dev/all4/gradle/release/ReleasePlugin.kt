@@ -89,6 +89,7 @@ public class ReleasePlugin : Plugin<Project> {
             }
 
             afterEvaluate {
+                loadPublishingProperties(ext)
                 ensureChangelogs(ext)
                 registerAggregateTasks(ext)
                 registerChangelogTasks(ext)
@@ -103,6 +104,19 @@ public class ReleasePlugin : Plugin<Project> {
         )
         findProperty("library.group")?.let { ext.group.set(it.toString()) }
         findProperty("library.version")?.let { ext.version.set(it.toString()) }
+    }
+
+    private fun Project.loadPublishingProperties(ext: PublishingExtension) {
+        val path = ext.propertiesFile.orNull ?: return
+        val propsFile = layout.projectDirectory.file(path).asFile
+        if (!propsFile.exists()) return
+        val props = java.util.Properties()
+        propsFile.inputStream().buffered().use { props.load(it) }
+        allprojects {
+            props.forEach { key, value ->
+                extensions.extraProperties.set(key.toString(), value.toString())
+            }
+        }
     }
 
     private fun Project.ensureChangelogs(ext: PublishingExtension) {
